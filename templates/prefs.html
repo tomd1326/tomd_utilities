@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% block title %}Preferences — Expenditure{% endblock %}
+
+{% block content %}
+<h4 class="mb-4"><i class="bi bi-sliders me-2 text-primary"></i>Preferences</h4>
+
+<div class="row">
+  <div class="col-lg-7">
+    <form method="post">
+      <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-white fw-semibold border-bottom py-2">Filtering Defaults</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">Default date range</label>
+              <select name="date_range" class="form-select form-select-sm">
+                <option value="30"  {% if prefs.date_range=='30'  %}selected{% endif %}>Last 30 days</option>
+                <option value="90"  {% if prefs.date_range=='90'  %}selected{% endif %}>Last 90 days</option>
+                <option value="180" {% if prefs.date_range=='180' %}selected{% endif %}>Last 180 days</option>
+                <option value="365" {% if prefs.date_range=='365' %}selected{% endif %}>Last year</option>
+                <option value="0"   {% if prefs.date_range=='0'   %}selected{% endif %}>All time</option>
+              </select>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">Rows per page</label>
+              <select name="page_length" class="form-select form-select-sm">
+                {% for n in [10, 25, 50, 100] %}
+                <option value="{{ n }}" {% if prefs.page_length|int == n %}selected{% endif %}>{{ n }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="hide_unknowns" id="hideUnknowns"
+                  {% if prefs.hide_unknowns %}checked{% endif %}>
+                <label class="form-check-label small" for="hideUnknowns">Hide unknown/unmapped transactions from all views</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-white fw-semibold border-bottom py-2">Visible Columns in Transactions</div>
+        <div class="card-body">
+          <div class="row g-2">
+            {% for col_key, col_label in all_columns %}
+            <div class="col-sm-4">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="columns" value="{{ col_key }}"
+                  id="col_{{ col_key }}"
+                  {% if col_key in prefs.columns %}checked{% endif %}>
+                <label class="form-check-label small" for="col_{{ col_key }}">{{ col_label }}</label>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-white fw-semibold border-bottom py-2">Chart Preferences</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">Category chart default</label>
+              <select name="category_chart" class="form-select form-select-sm">
+                <option value="bar" {% if prefs.category_chart=='bar' %}selected{% endif %}>Bar chart</option>
+                <option value="pie" {% if prefs.category_chart=='pie' %}selected{% endif %}>Pie chart</option>
+              </select>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">Top merchants to show</label>
+              <input type="number" name="top_n_merchants" class="form-control form-control-sm"
+                value="{{ prefs.top_n_merchants }}" min="5" max="50">
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">Chart colour scheme</label>
+              <select name="color_scheme" class="form-select form-select-sm">
+                <option value="plotly" {% if prefs.color_scheme=='plotly' %}selected{% endif %}>Plotly (default)</option>
+                <option value="blues"  {% if prefs.color_scheme=='blues'  %}selected{% endif %}>Blues</option>
+                <option value="earth"  {% if prefs.color_scheme=='earth'  %}selected{% endif %}>Earth tones</option>
+                <option value="dark"   {% if prefs.color_scheme=='dark'   %}selected{% endif %}>Dark</option>
+              </select>
+              <div class="form-text">Colour scheme is applied to pie/category charts.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save Preferences</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

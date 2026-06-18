@@ -1,0 +1,239 @@
+{% extends 'base.html' %}
+{% block title %}Charts — Expenditure{% endblock %}
+
+{% block content %}
+<h4 class="mb-3"><i class="bi bi-bar-chart-line me-2 text-primary"></i>Charts</h4>
+
+<!-- Filters -->
+<form method="get" class="filter-bar">
+  <div class="row g-2 align-items-end">
+    <div class="col-sm-6 col-md-2">
+      <label class="form-label small fw-semibold mb-1">From</label>
+      <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+    </div>
+    <div class="col-sm-6 col-md-2">
+      <label class="form-label small fw-semibold mb-1">To</label>
+      <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+    </div>
+    <div class="col-sm-6 col-md-2">
+      <label class="form-label small fw-semibold mb-1">Account</label>
+      <select name="account" class="form-select form-select-sm">
+        <option value="">All accounts</option>
+        {% for a in accounts %}
+        <option value="{{ a }}" {% if a == sel_account %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-6 col-md-2">
+      <label class="form-label small fw-semibold mb-1">Category</label>
+      <select name="category" class="form-select form-select-sm">
+        <option value="">All categories</option>
+        {% for c in categories %}
+        <option value="{{ c }}" {% if c == sel_category %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-auto">
+      <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel me-1"></i>Apply</button>
+      <a href="{{ url_for('charts') }}" class="btn btn-outline-secondary btn-sm ms-1">Reset</a>
+    </div>
+  </div>
+</form>
+
+<div id="noData" class="alert alert-info d-none">No data for the selected filters.</div>
+
+<!-- Row 1: Monthly trend -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0 fw-semibold">Monthly Spend</h6>
+    </div>
+    <div id="chartMonthly" style="height:280px"></div>
+  </div>
+</div>
+
+<!-- Row 2: Category + Top merchants -->
+<div class="row g-3 mb-3">
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0 fw-semibold">Spend by Category</h6>
+          <div class="btn-group btn-group-sm" role="group">
+            <button class="btn btn-outline-secondary active" id="btnCatBar">Bar</button>
+            <button class="btn btn-outline-secondary" id="btnCatPie">Pie</button>
+          </div>
+        </div>
+        <div id="chartCategory" style="height:320px"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="mb-2 fw-semibold">Top Merchants</h6>
+        <div id="chartMerchants" style="height:320px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Row 3: Stacked by account -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <h6 class="mb-2 fw-semibold">Spend by Account (Monthly)</h6>
+    <div id="chartAccounts" style="height:280px"></div>
+  </div>
+</div>
+
+<!-- Row 4: Category trend lines -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <h6 class="mb-2 fw-semibold">Top Category Trends</h6>
+    <div id="chartCatTrend" style="height:280px"></div>
+  </div>
+</div>
+
+<!-- Row 5: Anomalies -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <h6 class="mb-2 fw-semibold">Anomaly Detection <small class="text-muted fw-normal">(transactions &gt;2σ from their category mean)</small></h6>
+    <div id="chartAnomalies" style="height:280px"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const D = {{ charts_data|safe }};
+const scheme = '{{ prefs.color_scheme }}';
+const catChartPref = '{{ prefs.category_chart }}';
+
+const layout = (title, extra) => Object.assign({
+  margin: {l:60, r:20, t:30, b:50},
+  paper_bgcolor: 'rgba(0,0,0,0)',
+  plot_bgcolor:  'rgba(0,0,0,0)',
+  font: {family: 'system-ui, sans-serif', size: 12},
+  hoverlabel: {bgcolor: '#fff', bordercolor: '#dee2e6'},
+  xaxis: {gridcolor: '#f0f0f0'},
+  yaxis: {gridcolor: '#f0f0f0'},
+}, extra || {});
+
+const cfg = {responsive: true, displayModeBar: false};
+
+if (!D || Object.keys(D).length === 0) {
+  document.getElementById('noData').classList.remove('d-none');
+} else {
+
+  /* Monthly trend */
+  if (D.monthly && D.monthly.x.length) {
+    Plotly.newPlot('chartMonthly', [{
+      type: 'bar', x: D.monthly.x, y: D.monthly.y,
+      marker: {color: '#0d6efd'},
+      hovertemplate: '%{x}<br>£%{y:,.2f}<extra></extra>',
+      text: D.monthly.y.map(v => '£' + v.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0})),
+      textposition: 'outside',
+    }], layout('Monthly Spend', {showlegend: false}), cfg);
+  }
+
+  /* Category chart — bar (default) */
+  let catMode = catChartPref === 'pie' ? 'pie' : 'bar';
+
+  function drawCategoryChart(mode) {
+    const el = document.getElementById('chartCategory');
+    if (!D.by_category || !D.by_category.labels.length) return;
+    if (mode === 'pie') {
+      Plotly.newPlot(el, [{
+        type: 'pie',
+        labels: D.by_category.labels,
+        values: D.by_category.values,
+        hole: 0.35,
+        hovertemplate: '%{label}<br>£%{value:,.2f} (%{percent})<extra></extra>',
+        textinfo: 'percent',
+      }], Object.assign(layout(), {margin:{l:10,r:10,t:10,b:10}, showlegend:true, legend:{orientation:'v'}}), cfg);
+    } else {
+      Plotly.newPlot(el, [{
+        type: 'bar', orientation: 'h',
+        x: D.by_category.values.slice().reverse(),
+        y: D.by_category.labels.slice().reverse(),
+        marker: {color: '#0d6efd'},
+        hovertemplate: '%{y}<br>£%{x:,.2f}<extra></extra>',
+      }], layout('', {margin:{l:140,r:20,t:10,b:40}, xaxis:{title:'£'}}), cfg);
+    }
+  }
+
+  drawCategoryChart(catMode);
+  document.getElementById('btnCatBar').addEventListener('click', function() {
+    catMode = 'bar';
+    this.classList.add('active');
+    document.getElementById('btnCatPie').classList.remove('active');
+    drawCategoryChart('bar');
+  });
+  document.getElementById('btnCatPie').addEventListener('click', function() {
+    catMode = 'pie';
+    this.classList.add('active');
+    document.getElementById('btnCatBar').classList.remove('active');
+    drawCategoryChart('pie');
+  });
+  if (catMode === 'pie') {
+    document.getElementById('btnCatPie').classList.add('active');
+    document.getElementById('btnCatBar').classList.remove('active');
+  }
+
+  /* Top merchants */
+  if (D.top_merchants && D.top_merchants.companies.length) {
+    Plotly.newPlot('chartMerchants', [{
+      type: 'bar', orientation: 'h',
+      x: D.top_merchants.values.slice().reverse(),
+      y: D.top_merchants.companies.slice().reverse(),
+      marker: {color: '#198754'},
+      hovertemplate: '%{y}<br>£%{x:,.2f}<extra></extra>',
+    }], layout('', {margin:{l:140,r:20,t:10,b:40}, xaxis:{title:'£'}, showlegend:false}), cfg);
+  }
+
+  /* Stacked by account */
+  if (D.by_account && D.by_account.months.length) {
+    const acctTraces = D.by_account.accounts.map(a => ({
+      type: 'bar', name: a,
+      x: D.by_account.months,
+      y: D.by_account.data[a],
+      hovertemplate: '%{x}<br>' + a + ': £%{y:,.2f}<extra></extra>',
+    }));
+    Plotly.newPlot('chartAccounts', acctTraces,
+      layout('', {barmode:'stack', legend:{orientation:'h', y:-0.2}}), cfg);
+  }
+
+  /* Category trend lines */
+  if (D.category_trend && D.category_trend.months.length) {
+    const catTraces = Object.keys(D.category_trend.series).map(cat => ({
+      type: 'scatter', mode: 'lines+markers', name: cat,
+      x: D.category_trend.months,
+      y: D.category_trend.series[cat],
+      hovertemplate: '%{x}<br>' + cat + ': £%{y:,.2f}<extra></extra>',
+    }));
+    Plotly.newPlot('chartCatTrend', catTraces,
+      layout('', {legend:{orientation:'h', y:-0.25}}), cfg);
+  }
+
+  /* Anomalies */
+  if (D.anomalies) {
+    Plotly.newPlot('chartAnomalies', [
+      {
+        type: 'scatter', mode: 'markers', name: 'Normal',
+        x: D.anomalies.normal.x, y: D.anomalies.normal.y,
+        text: D.anomalies.normal.text,
+        marker: {color: '#0d6efd', size: 5, opacity: 0.5},
+        hovertemplate: '%{text}<br>£%{y:,.2f}<extra></extra>',
+      },
+      {
+        type: 'scatter', mode: 'markers', name: 'Anomaly',
+        x: D.anomalies.anomaly.x, y: D.anomalies.anomaly.y,
+        text: D.anomalies.anomaly.text,
+        marker: {color: '#dc3545', size: 9, symbol: 'diamond'},
+        hovertemplate: '<b>ANOMALY</b><br>%{text}<br>£%{y:,.2f}<extra></extra>',
+      },
+    ], layout('', {legend:{orientation:'h', y:-0.2}}), cfg);
+  }
+}
+</script>
+{% endblock %}

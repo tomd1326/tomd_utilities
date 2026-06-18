@@ -1,0 +1,167 @@
+{% extends 'base.html' %}
+{% block title %}Transactions — Expenditure{% endblock %}
+
+{% block content %}
+<h4 class="mb-3"><i class="bi bi-table me-2 text-primary"></i>Transactions</h4>
+
+<!-- Filter bar -->
+<form method="get" class="filter-bar">
+  <div class="row g-2 align-items-end">
+    <div class="col-sm-6 col-md-2">
+      <label class="form-label small fw-semibold mb-1">From</label>
+      <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+    </div>
+    <div class="col-sm-6 col-md-2">
+      <label class="form-label small fw-semibold mb-1">To</label>
+      <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+    </div>
+    <div class="col-sm-6 col-md-2">
+      <label class="form-label small fw-semibold mb-1">Account</label>
+      <select name="account" class="form-select form-select-sm">
+        <option value="">All accounts</option>
+        {% for a in accounts %}
+        <option value="{{ a }}" {% if a == sel_account %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-6 col-md-2">
+      <label class="form-label small fw-semibold mb-1">Category</label>
+      <select name="category" class="form-select form-select-sm">
+        <option value="">All categories</option>
+        {% for c in categories %}
+        <option value="{{ c }}" {% if c == sel_category %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-auto d-flex gap-2">
+      <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel me-1"></i>Filter</button>
+      <a href="{{ url_for('transactions') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
+      <a href="{{ url_for('transactions') }}?all_dates=1" class="btn btn-outline-secondary btn-sm">All dates</a>
+    </div>
+  </div>
+</form>
+
+<!-- Summary cards -->
+<div class="row g-3 mb-3">
+  <div class="col-sm-4 col-md-3">
+    <div class="card stat-card shadow-sm bg-white">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Rows shown</div>
+        <div class="fs-5 fw-semibold">{{ rows|length }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-4 col-md-3">
+    <div class="card stat-card shadow-sm bg-white">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Total spend</div>
+        <div class="fs-5 fw-semibold value-pos">{{ total_spend | gbp }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-4 col-md-3">
+    <div class="card stat-card shadow-sm bg-white">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Credits / refunds</div>
+        <div class="fs-5 fw-semibold value-neg">{{ total_credits | gbp }}</div>
+      </div>
+    </div>
+  </div>
+  {% if unknown_count %}
+  <div class="col-sm-4 col-md-3">
+    <div class="card stat-card shadow-sm border-warning bg-white">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Unknown company</div>
+        <div class="fs-5 fw-semibold text-warning">
+          {{ unknown_count }}
+          <a href="{{ url_for('mappings') }}" class="small text-decoration-none ms-1">fix →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Table -->
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table id="txTable" class="table table-sm table-hover mb-0 w-100">
+      <thead class="table-light">
+        <tr>
+          {% if 'date'         in prefs.columns %}<th>Date</th>{% endif %}
+          {% if 'description'  in prefs.columns %}<th>Description</th>{% endif %}
+          {% if 'account_name' in prefs.columns %}<th>Account</th>{% endif %}
+          {% if 'value'        in prefs.columns %}<th class="text-end">Amount</th>{% endif %}
+          {% if 'company'      in prefs.columns %}<th>Company</th>{% endif %}
+          {% if 'category'     in prefs.columns %}<th>Category</th>{% endif %}
+          {% if 'source_file'  in prefs.columns %}<th>Source</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          {% if 'date'         in prefs.columns %}<td data-order="{{ r.date }}">{{ r.date | fmtdate }}</td>{% endif %}
+          {% if 'description'  in prefs.columns %}<td>{{ r.description }}</td>{% endif %}
+          {% if 'account_name' in prefs.columns %}<td><span class="badge bg-secondary fw-normal">{{ r.account_name }}</span></td>{% endif %}
+          {% if 'value'        in prefs.columns %}
+          <td class="text-end" data-order="{{ r.value or 0 }}">
+            {% if r.value is not none %}
+              <span class="{% if r.value >= 0 %}value-pos{% else %}value-neg{% endif %}">{{ r.value | gbp }}</span>
+            {% else %}—{% endif %}
+          </td>
+          {% endif %}
+          {% if 'company' in prefs.columns %}
+          <td>
+            {% if r.company == '__Unknown' %}
+              <span class="badge badge-unknown">Unknown
+                <a href="{{ url_for('mappings') }}" class="text-white ms-1" title="Map this">＋</a>
+              </span>
+            {% else %}
+              {{ r.company }}
+            {% endif %}
+          </td>
+          {% endif %}
+          {% if 'category' in prefs.columns %}
+          <td>
+            {% if r.category == '__Unknown' %}
+              <span class="badge badge-unknown">Unknown</span>
+            {% else %}
+              <span class="badge rounded-pill bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25">{{ r.category }}</span>
+            {% endif %}
+          </td>
+          {% endif %}
+          {% if 'source_file' in prefs.columns %}<td class="text-muted small">{{ r.source_file }}</td>{% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(function() {
+  $('#txTable').DataTable({
+    pageLength: {{ prefs.page_length }},
+    order: [[0, 'desc']],
+    responsive: true,
+    dom: '<"d-flex justify-content-between align-items-center mb-2"Bf>rtip',
+    buttons: [
+      { extend: 'csvHtml5',   text: '<i class="bi bi-download me-1"></i>CSV',   className: 'btn btn-sm btn-outline-secondary' },
+      { extend: 'excelHtml5', text: '<i class="bi bi-file-earmark-excel me-1"></i>Excel', className: 'btn btn-sm btn-outline-secondary' },
+      { extend: 'print',      text: '<i class="bi bi-printer me-1"></i>Print',   className: 'btn btn-sm btn-outline-secondary' },
+    ],
+    language: {
+      search: '<i class="bi bi-search"></i>',
+      searchPlaceholder: 'Search…',
+      lengthMenu: 'Show _MENU_',
+      info: '_START_–_END_ of _TOTAL_',
+    },
+    columnDefs: [
+      { className: 'dt-body-right', targets: -1 }  // last numeric col right-aligned fallback
+    ],
+  });
+});
+</script>
+{% endblock %}

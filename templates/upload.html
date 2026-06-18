@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %}Upload — Expenditure{% endblock %}
+
+{% block content %}
+<h4 class="mb-4"><i class="bi bi-cloud-upload me-2 text-primary"></i>Upload Statements</h4>
+
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-4">
+        <form method="post" enctype="multipart/form-data" id="uploadForm">
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Account</label>
+            <select name="account" class="form-select" required>
+              <option value="">— select account —</option>
+              {% for a in account_choices %}
+              <option value="{{ a }}">{{ a }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">All uploaded files must belong to the same account.</div>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">CSV Files</label>
+            <input type="file" name="files" class="form-control" multiple accept=".csv" required id="fileInput">
+            <div class="form-text">Select one or more CSV export files from your bank.</div>
+          </div>
+
+          <div id="fileList" class="mb-3 d-none">
+            <p class="text-muted small mb-1">Selected files:</p>
+            <ul id="fileNames" class="list-unstyled small mb-0"></ul>
+          </div>
+
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-cpu me-1"></i>Process &amp; Import
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6 mt-4 mt-lg-0">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body p-4">
+        <h6 class="fw-semibold mb-3">Expected file formats</h6>
+        <table class="table table-sm table-borderless">
+          <thead class="text-muted"><tr><th>Account</th><th>Format</th></tr></thead>
+          <tbody>
+            <tr><td>Barclaycard 0%</td><td>Barclaycard CSV export</td></tr>
+            <tr><td>Current</td><td>NatWest CSV (current)</td></tr>
+            <tr><td>NatWest 0%</td><td>NatWest CSV (credit)</td></tr>
+            <tr><td>Credit Card</td><td>NatWest CSV (Reward Black)</td></tr>
+            <tr><td>Tesco 0%</td><td>Tesco Bank CSV export</td></tr>
+          </tbody>
+        </table>
+        <hr>
+        <p class="text-muted small mb-0">
+          <i class="bi bi-info-circle me-1"></i>
+          After importing, visit <a href="{{ url_for('mappings') }}">Mappings</a> to
+          categorise any unknown transactions.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('fileInput').addEventListener('change', function() {
+  const list = document.getElementById('fileList');
+  const names = document.getElementById('fileNames');
+  names.innerHTML = '';
+  if (this.files.length > 0) {
+    list.classList.remove('d-none');
+    Array.from(this.files).forEach(f => {
+      const li = document.createElement('li');
+      li.innerHTML = `<i class="bi bi-file-earmark-text me-1 text-success"></i>${f.name}`;
+      names.appendChild(li);
+    });
+  } else {
+    list.classList.add('d-none');
+  }
+});
+</script>
+{% endblock %}

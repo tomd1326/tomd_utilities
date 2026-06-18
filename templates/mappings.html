@@ -1,0 +1,272 @@
+{% extends 'base.html' %}
+{% block title %}Mappings — Expenditure{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-tags me-2 text-primary"></i>Mappings</h4>
+  <form method="post" action="{{ url_for('reclassify') }}" class="d-inline">
+    <button type="submit" class="btn btn-warning btn-sm"
+      onclick="return confirm('Re-apply all mappings to every transaction?')">
+      <i class="bi bi-arrow-repeat me-1"></i>Re-classify All Transactions
+    </button>
+  </form>
+</div>
+
+<!-- Nav tabs -->
+<ul class="nav nav-tabs mb-0" id="mappingTabs">
+  <li class="nav-item">
+    <a class="nav-link {% if unknowns %}active{% else %}{% endif %}" href="#unknowns" data-bs-toggle="tab">
+      Unknowns
+      {% if unknowns %}<span class="badge bg-danger ms-1">{{ unknowns|length }}</span>{% endif %}
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if not unknowns %}active{% endif %}" href="#companies" data-bs-toggle="tab" id="tabCompanies">Companies</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="#categories" data-bs-toggle="tab" id="tabCategories">Categories</a>
+  </li>
+</ul>
+
+<div class="tab-content border border-top-0 rounded-bottom bg-white shadow-sm p-3" id="mappingTabContent">
+
+  <!-- ===== UNKNOWNS ===== -->
+  <div class="tab-pane fade {% if unknowns %}show active{% endif %}" id="unknowns">
+    {% if not unknowns %}
+    <p class="text-success mt-2"><i class="bi bi-check-circle me-1"></i>No unknown transactions — all mapped!</p>
+    {% else %}
+    <p class="text-muted small mb-3">
+      {{ unknowns|length }} distinct descriptions have no company match.
+      Map each one below — this updates both the lookup tables and all matching transactions immediately.
+    </p>
+
+    <!-- Datalist for autocomplete -->
+    <datalist id="companyList">{% for c in all_companies %}<option value="{{ c }}">{% endfor %}</datalist>
+    <datalist id="categoryList">{% for c in all_categories %}<option value="{{ c }}">{% endfor %}</datalist>
+
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle" id="unknownTable">
+        <thead class="table-light">
+          <tr>
+            <th>Description (from statement)</th>
+            <th class="text-center">Txns</th>
+            <th class="text-end">Total</th>
+            <th style="min-width:160px">Company</th>
+            <th style="min-width:160px">Category</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in unknowns %}
+          <tr>
+            <td class="font-monospace small">{{ u.description }}</td>
+            <td class="text-center">{{ u.cnt }}</td>
+            <td class="text-end">{{ u.total | gbp }}</td>
+            <td colspan="3">
+              <form method="post" action="{{ url_for('quick_map') }}" class="d-flex gap-1">
+                <input type="hidden" name="description" value="{{ u.description }}">
+                <input type="text" name="company" class="form-control form-control-sm"
+                  placeholder="Company name" list="companyList" required style="min-width:140px">
+                <input type="text" name="category" class="form-control form-control-sm"
+                  placeholder="Category" list="categoryList" required style="min-width:140px">
+                <button class="btn btn-success btn-sm" type="submit">
+                  <i class="bi bi-check-lg"></i>
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ===== COMPANIES ===== -->
+  <div class="tab-pane fade {% if not unknowns %}show active{% endif %}" id="companies">
+    <!-- Add form -->
+    <form method="post" action="{{ url_for('add_company') }}" class="row g-2 align-items-end mb-3 mt-1">
+      <div class="col-sm-5">
+        <label class="form-label small fw-semibold mb-1">Statement Description</label>
+        <input type="text" name="description" class="form-control form-control-sm" placeholder="Exact description from bank CSV" required>
+      </div>
+      <div class="col-sm-4">
+        <label class="form-label small fw-semibold mb-1">Company Name</label>
+        <input type="text" name="company" class="form-control form-control-sm" placeholder="e.g. Amazon" list="companyList" required>
+      </div>
+      <div class="col-sm-auto">
+        <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Add</button>
+      </div>
+    </form>
+
+    <div class="table-responsive">
+      <table class="table table-sm table-hover" id="companyTable">
+        <thead class="table-light">
+          <tr><th>Description</th><th>Company</th><th class="text-end" style="width:120px">Actions</th></tr>
+        </thead>
+        <tbody>
+          {% for m in company_maps %}
+          <tr>
+            <td class="font-monospace small">{{ m.description }}</td>
+            <td>{{ m.company }}</td>
+            <td class="text-end">
+              <button class="btn btn-outline-secondary btn-sm py-0 px-1"
+                onclick="openEditCompany({{ m.id }}, {{ m.description|tojson }}, {{ m.company|tojson }})">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <form method="post" action="{{ url_for('delete_company', mid=m.id) }}" class="d-inline"
+                onsubmit="return confirm('Delete this mapping?')">
+                <button class="btn btn-outline-danger btn-sm py-0 px-1"><i class="bi bi-trash"></i></button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== CATEGORIES ===== -->
+  <div class="tab-pane fade" id="categories">
+    <!-- Add form -->
+    <form method="post" action="{{ url_for('add_category') }}" class="row g-2 align-items-end mb-3 mt-1">
+      <div class="col-sm-4">
+        <label class="form-label small fw-semibold mb-1">Company Name</label>
+        <input type="text" name="company" class="form-control form-control-sm" placeholder="e.g. Amazon" list="companyList" required>
+      </div>
+      <div class="col-sm-4">
+        <label class="form-label small fw-semibold mb-1">Category</label>
+        <input type="text" name="category" class="form-control form-control-sm" placeholder="e.g. Other shopping" list="categoryList" required>
+      </div>
+      <div class="col-sm-auto">
+        <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Add</button>
+      </div>
+    </form>
+
+    <div class="table-responsive">
+      <table class="table table-sm table-hover" id="categoryTable">
+        <thead class="table-light">
+          <tr><th>Company</th><th>Category</th><th class="text-end" style="width:120px">Actions</th></tr>
+        </thead>
+        <tbody>
+          {% for m in category_maps %}
+          <tr>
+            <td>{{ m.company }}</td>
+            <td><span class="badge rounded-pill bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25">{{ m.category }}</span></td>
+            <td class="text-end">
+              <button class="btn btn-outline-secondary btn-sm py-0 px-1"
+                onclick="openEditCategory({{ m.id }}, {{ m.company|tojson }}, {{ m.category|tojson }})">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <form method="post" action="{{ url_for('delete_category', mid=m.id) }}" class="d-inline"
+                onsubmit="return confirm('Delete this mapping?')">
+                <button class="btn btn-outline-danger btn-sm py-0 px-1"><i class="bi bi-trash"></i></button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /tab-content -->
+
+<!-- Edit Company modal -->
+<div class="modal fade" id="editCompanyModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <form method="post" id="editCompanyForm">
+      <div class="modal-content">
+        <div class="modal-header py-2"><h6 class="modal-title mb-0">Edit Company Mapping</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label small">Description</label>
+            <input type="text" name="description" id="editCompDesc" class="form-control form-control-sm" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Company</label>
+            <input type="text" name="company" id="editCompName" class="form-control form-control-sm" list="companyList" required>
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Category modal -->
+<div class="modal fade" id="editCategoryModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <form method="post" id="editCategoryForm">
+      <div class="modal-content">
+        <div class="modal-header py-2"><h6 class="modal-title mb-0">Edit Category Mapping</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label small">Company</label>
+            <input type="text" name="company" id="editCatComp" class="form-control form-control-sm" list="companyList" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Category</label>
+            <input type="text" name="category" id="editCatName" class="form-control form-control-sm" list="categoryList" required>
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+$('#companyTable').DataTable({
+  pageLength: 25,
+  order: [[0, 'asc']],
+  dom: '<"d-flex justify-content-between mb-2"f>rtip',
+  language: {search: '', searchPlaceholder: 'Search descriptions…'},
+});
+$('#categoryTable').DataTable({
+  pageLength: 25,
+  order: [[0, 'asc']],
+  dom: '<"d-flex justify-content-between mb-2"f>rtip',
+  language: {search: '', searchPlaceholder: 'Search companies…'},
+});
+$('#unknownTable').DataTable({
+  pageLength: 50,
+  order: [[1, 'desc']],
+  dom: '<"d-flex justify-content-between mb-2"f>rtip',
+  language: {search: '', searchPlaceholder: 'Search…'},
+  columnDefs: [{orderable: false, targets: [3, 4, 5]}],
+});
+
+function openEditCompany(id, desc, comp) {
+  document.getElementById('editCompanyForm').action = `/mappings/company/edit/${id}`;
+  document.getElementById('editCompDesc').value = desc;
+  document.getElementById('editCompName').value = comp;
+  new bootstrap.Modal(document.getElementById('editCompanyModal')).show();
+}
+
+function openEditCategory(id, comp, cat) {
+  document.getElementById('editCategoryForm').action = `/mappings/category/edit/${id}`;
+  document.getElementById('editCatComp').value = comp;
+  document.getElementById('editCatName').value = cat;
+  new bootstrap.Modal(document.getElementById('editCategoryModal')).show();
+}
+
+// Activate correct tab from URL hash
+const hash = window.location.hash;
+if (hash) {
+  const tab = document.querySelector(`a[href="${hash}"]`);
+  if (tab) new bootstrap.Tab(tab).show();
+}
+</script>
+{% endblock %}

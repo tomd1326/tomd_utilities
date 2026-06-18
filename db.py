@@ -1,0 +1,129 @@
+from __future__ import annotations
+import csv
+import secrets
+import sqlite3
+from pathlib import Path
+from werkzeug.security import generate_password_hash
+
+BASE_DIR = Path(__file__).parent
+DB_PATH   = BASE_DIR / 'expenditure.db'
+COMPANIES_CSV  = BASE_DIR / 'companies.csv'
+CATEGORIES_CSV = BASE_DIR / 'categories.csv'
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS app_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    username      TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS uploaded_batches (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    account     TEXT NOT NULL,
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    file_count  INTEGER,
+    row_count   INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS transactions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    date         TEXT NOT NULL,
+    description  TEXT,
+    account_name TEXT,
+    value        REAL,
+    source_file  TEXT,
+    company      TEXT DEFAULT '__Unknown',
+    category     TEXT DEFAULT '__Unknown',
+    batch_id     INTEGER REFERENCES uploaded_batches(id)
+);
+
+CREATE TABLE IF NOT EXISTS company_map (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    company     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS category_map (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    company  TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    category TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_prefs (
+    username   TEXT PRIMARY KEY,
+    prefs_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_tx_date     ON transactions(date);
+CREATE INDEX IF NOT EXISTS idx_tx_company  ON transactions(company);
+CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category);
+"""
+
+
+def get_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def get_or_create_secret_key() -> str:
+    conn = get_conn()
+    row = conn.execute("SELECT value FROM app_config WHERE key='secret_key'").fetchone()
+    if row:
+        conn.close()
+        return row['value']
+    key = secrets.token_hex(32)
+    conn.execute("INSERT INTO app_config (key, value) VALUES ('secret_key', ?)", (key,))
+    conn.commit()
+    conn.close()
+    return key
+
+
+def init_db() -> None:
+    conn = get_conn()
+    conn.executescript(SCHEMA)
+    conn.commit()
+
+    # Ensure secret key exists
+    get_or_create_secret_key()
+
+    # Default user
+    if not conn.execute("SELECT 1 FROM users WHERE username='tdrayson'").fetchone():
+        conn.execute(
+            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+            ('tdrayson', generate_password_hash('timber1326'))
+        )
+        conn.commit()
+        print("[db] Created default user 'tdrayson'")
+
+    # Seed company_map from companies.csv
+    if COMPANIES_CSV.exists() and conn.execute("SELECT COUNT(*) as n FROM company_map").fetchone()['n'] == 0:
+        with open(COMPANIES_CSV, encoding='utf-8-sig') as f:
+            rows = [
+                (r['Description'].strip(), r['Company'].strip())
+                for r in csv.DictReader(f)
+                if r.get('Description', '').strip()
+            ]
+        conn.executemany("INSERT OR IGNORE INTO company_map (description, company) VALUES (?, ?)", rows)
+        conn.commit()
+        print(f"[db] Seeded {len(rows)} company mappings")
+
+    # Seed category_map from categories.csv
+    if CATEGORIES_CSV.exists() and conn.execute("SELECT COUNT(*) as n FROM category_map").fetchone()['n'] == 0:
+        with open(CATEGORIES_CSV, encoding='utf-8-sig') as f:
+            rows = [
+                (r['Company'].strip(), r['Category'].strip())
+                for r in csv.DictReader(f)
+                if r.get('Company', '').strip()
+            ]
+        conn.executemany("INSERT OR IGNORE INTO category_map (company, category) VALUES (?, ?)", rows)
+        conn.commit()
+        print(f"[db] Seeded {len(rows)} category mappings")
+
+    conn.close()
