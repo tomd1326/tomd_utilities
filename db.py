@@ -29,6 +29,16 @@ CREATE TABLE IF NOT EXISTS uploaded_batches (
     row_count   INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS uploaded_files (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id    INTEGER REFERENCES uploaded_batches(id),
+    filename    TEXT NOT NULL,
+    file_size   INTEGER NOT NULL,
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_uf_name_size ON uploaded_files(filename, file_size);
+
 CREATE TABLE IF NOT EXISTS transactions (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     date         TEXT NOT NULL,
@@ -56,6 +66,13 @@ CREATE TABLE IF NOT EXISTS category_map (
 CREATE TABLE IF NOT EXISTS user_prefs (
     username   TEXT PRIMARY KEY,
     prefs_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS accounts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT NOT NULL UNIQUE,
+    reader_type  TEXT NOT NULL,
+    reader_label TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_tx_date     ON transactions(date);
@@ -93,14 +110,31 @@ def init_db() -> None:
     # Ensure secret key exists
     get_or_create_secret_key()
 
-    # Default user
+    # Default user — empty password_hash signals first-login password setup
     if not conn.execute("SELECT 1 FROM users WHERE username='tdrayson'").fetchone():
         conn.execute(
             "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-            ('tdrayson', generate_password_hash('timber1326'))
+            ('tdrayson', '')
         )
         conn.commit()
-        print("[db] Created default user 'tdrayson'")
+        print("[db] Created default user 'tdrayson' (no password — will be set on first login)")
+
+    # Seed accounts
+    if conn.execute("SELECT COUNT(*) as n FROM accounts").fetchone()['n'] == 0:
+        DEFAULT_ACCOUNTS = [
+            ('Barclaycard 0% Credit Card', 'barclay', None),
+            ('NatWest Current',            'natwest', 'Current'),
+            ('NatWest 0% Credit Card',     'natwest', 'NatWest 0%'),
+            ('NatWest Black Credit Card',  'natwest', 'Credit Card'),
+            ('Tesco 0% Credit Card',       'tesco',   None),
+            ('M&S 0% Credit Card',         'natwest', 'M&S 0% Credit Card'),
+        ]
+        conn.executemany(
+            "INSERT INTO accounts (name, reader_type, reader_label) VALUES (?, ?, ?)",
+            DEFAULT_ACCOUNTS
+        )
+        conn.commit()
+        print("[db] Seeded default accounts")
 
     # Seed company_map from companies.csv
     if COMPANIES_CSV.exists() and conn.execute("SELECT COUNT(*) as n FROM company_map").fetchone()['n'] == 0:

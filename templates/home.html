@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Home — Expenditure{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column align-items-center justify-content-center" style="min-height: 70vh; gap: 1rem;">
+  <a href="{{ url_for('transactions') }}" class="btn btn-primary btn-lg" style="width: 220px;">
+    <i class="bi bi-wallet2 me-2"></i>Expenditure
+  </a>
+</div>
+{% endblock %}
