@@ -3,3 +3,6 @@ pandas>=2.2
 openpyxl>=3.1
 pyarrow>=16.0.0
 werkzeug>=3.0
+faster-whisper>=1.0
+metaphone>=0.6
+jellyfish>=1.0

@@ -1,0 +1,169 @@
+{% extends 'base.html' %}
+{% block title %}Audio Transcriber{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-mic text-primary me-2"></i>Audio Transcriber</h4>
+  <a href="{{ url_for('home') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-grid me-1"></i>All tools
+  </a>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-body p-4">
+
+        <form method="post" enctype="multipart/form-data" id="upload-form">
+          <div class="mb-3">
+            <label class="form-label fw-medium">Audio file</label>
+            <input type="file" name="audio" id="audio-input" class="form-control"
+                   accept=".ogg,.oga,.opus,.mp3,.m4a,.aac,.wav,.flac,.wma,.mp4,.mkv,.webm" required>
+            <div class="form-text">
+              WhatsApp voice notes (.ogg) plus mp3, m4a, wav, flac and most video containers.
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-medium">Sender</label>
+            <div class="row g-2">
+              <div class="col-sm-6">
+                <select name="sender_id" id="sender-select" class="form-select">
+                  <option value="">— No sender —</option>
+                  {% for s in senders %}
+                  <option value="{{ s['id'] }}">{{ s['name'] }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-sm-6">
+                <input type="text" name="new_sender" id="new-sender" class="form-control"
+                       placeholder="…or type a new name">
+              </div>
+            </div>
+            <div class="form-text">
+              Corrections you make are remembered per sender and applied automatically
+              to their future recordings.
+            </div>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-sm-6">
+              <label class="form-label fw-medium">Model</label>
+              <select name="model" class="form-select">
+                {% for size, label in models %}
+                <option value="{{ size }}" {% if size == default_model %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <div class="form-text">Larger is more accurate but slower.</div>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label fw-medium">Language</label>
+              <select name="language" class="form-select">
+                <option value="auto">Detect automatically</option>
+                <option value="en" selected>English</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="es">Spanish</option>
+                <option value="it">Italian</option>
+                <option value="pl">Polish</option>
+                <option value="pt">Portuguese</option>
+                <option value="ro">Romanian</option>
+              </select>
+              <div class="form-text">Pinning the language helps on short clips.</div>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary w-100" id="submit-btn">
+            <i class="bi bi-upload me-1"></i>Upload &amp; Process
+          </button>
+        </form>
+
+        <div id="upload-box" class="d-none mt-3">
+          <div class="d-flex justify-content-between text-muted small mb-1">
+            <span><i class="bi bi-upload me-1"></i>Uploading</span>
+            <span id="upload-pct">0%</span>
+          </div>
+          <div class="progress" style="height: 6px;">
+            <div id="upload-bar" class="progress-bar bg-secondary" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div id="progress-box" class="d-none mt-3">
+          <div class="d-flex justify-content-between text-muted small mb-1">
+            <span id="progress-text">
+              <span class="spinner-border spinner-border-sm text-primary me-1"
+                    style="width:.75rem;height:.75rem;"></span>Processing
+            </span>
+            <span id="progress-pct">0%</span>
+          </div>
+          <div class="progress" style="height: 6px;">
+            <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div id="error-box" class="alert alert-danger d-none mt-3 mb-0 small"></div>
+
+        <div class="alert alert-light border mt-3 mb-0 small text-muted">
+          <i class="bi bi-info-circle me-1"></i>
+          The first run with a given model downloads it (75&nbsp;MB–1.5&nbsp;GB) and will be slow.
+          Later runs reuse the cached copy. Audio is processed locally and the uploaded
+          file is deleted once transcribed.
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-body p-4">
+        <h6 class="fw-medium mb-3">Recent transcriptions</h6>
+
+        {% if recent %}
+        <div class="list-group list-group-flush">
+          {% for r in recent %}
+          <a href="{{ url_for('transcription_detail', tid=r['id']) }}"
+             class="list-group-item list-group-item-action px-0 py-2 border-0 border-bottom">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+              <div class="min-width-0">
+                <div class="fw-medium text-truncate">{{ r['filename'] }}</div>
+                <div class="text-muted small text-truncate">{{ r['preview'] }}…</div>
+              </div>
+              <span class="badge bg-light text-dark flex-shrink-0">
+                {{ fmt_duration(r['duration'] or 0) }}
+              </span>
+            </div>
+            <div class="text-muted" style="font-size: .75rem;">
+              {{ r['created_at'] }} · {{ r['model'] }} · {{ r['language'] }}
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">Nothing transcribed yet.</p>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Transcription is synchronous and can run for minutes; show that
+  // something is happening and stop double-submits.
+  document.getElementById('upload-form').addEventListener('submit', function () {
+    var btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Processing…';
+    document.getElementById('progress-box').classList.remove('d-none');
+
+    var f = document.getElementById('audio-input').files[0];
+    if (f) {
+      document.getElementById('progress-text').textContent =
+        'Transcribing ' + f.name + ' — this can take a while on first run.';
+    }
+  });
+</script>
+{% endblock %}

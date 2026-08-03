@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block title %}{{ sender['name'] }} — Corrections{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-person text-primary me-2"></i>{{ sender['name'] }}</h4>
+  <a href="{{ url_for('senders_page') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>All senders
+  </a>
+</div>
+
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-body p-4">
+    <h6 class="fw-medium mb-3">Learned corrections</h6>
+
+    {% if rules %}
+    <p class="text-muted small">
+      These are applied automatically to new recordings from {{ sender['name'] }},
+      where the transcription is uncertain and sounds similar.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr class="text-muted small">
+            <th>Heard as</th>
+            <th>Corrected to</th>
+            <th class="text-end">Times seen</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rules %}
+          <tr>
+            <td><del class="text-muted">{{ r['wrong_text'] }}</del></td>
+            <td class="fw-medium">{{ r['correct_text'] }}</td>
+            <td class="text-end">{{ r['times_seen'] }}</td>
+            <td class="text-end">
+              <form method="post"
+                    action="{{ url_for('sender_rule_delete', sid=sender['id'], rid=r['id']) }}"
+                    onsubmit="return confirm('Remove this correction?');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-0">
+      Nothing learned yet. Edit a transcript from this sender and save it —
+      whatever you change is remembered here.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

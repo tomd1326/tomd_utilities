@@ -75,9 +75,52 @@ CREATE TABLE IF NOT EXISTS accounts (
     reader_label TEXT
 );
 
+CREATE TABLE IF NOT EXISTS senders (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username   TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (username, name COLLATE NOCASE)
+);
+
+CREATE TABLE IF NOT EXISTS sender_corrections (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender_id     INTEGER NOT NULL REFERENCES senders(id) ON DELETE CASCADE,
+    wrong_text    TEXT NOT NULL,
+    correct_text  TEXT NOT NULL,
+    times_seen    INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS transcriptions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    username       TEXT NOT NULL,
+    sender_id      INTEGER REFERENCES senders(id) ON DELETE SET NULL,
+    filename       TEXT NOT NULL,
+    file_size      INTEGER,
+    duration       REAL,
+    language       TEXT,
+    model          TEXT,
+    text           TEXT NOT NULL,
+    raw_text       TEXT,
+    segments_json  TEXT NOT NULL DEFAULT '[]',
+    words_json     TEXT NOT NULL DEFAULT '[]',
+    applied_json   TEXT NOT NULL DEFAULT '[]',
+    suggested_json TEXT NOT NULL DEFAULT '[]',
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_tx_date     ON transactions(date);
 CREATE INDEX IF NOT EXISTS idx_tx_company  ON transactions(company);
 CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category);
+CREATE INDEX IF NOT EXISTS idx_trs_user    ON transcriptions(username, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sc_sender   ON sender_corrections(sender_id);
+"""
+
+# Indexes that depend on columns added by _migrate, so they can only be
+# created after it has run.
+POST_MIGRATE_SCHEMA = """
+CREATE INDEX IF NOT EXISTS idx_trs_sender  ON transcriptions(sender_id);
 """
 
 
@@ -102,9 +145,32 @@ def get_or_create_secret_key() -> str:
     return key
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """
+    Add columns introduced after a table first shipped.
+
+    CREATE TABLE IF NOT EXISTS silently does nothing on an existing table,
+    so new columns have to be added explicitly for databases created by an
+    earlier version.
+    """
+    existing = {r['name'] for r in conn.execute('PRAGMA table_info(transcriptions)')}
+    added = {
+        'sender_id':      'INTEGER REFERENCES senders(id) ON DELETE SET NULL',
+        'raw_text':       'TEXT',
+        'words_json':     "TEXT NOT NULL DEFAULT '[]'",
+        'applied_json':   "TEXT NOT NULL DEFAULT '[]'",
+        'suggested_json': "TEXT NOT NULL DEFAULT '[]'",
+    }
+    for col, decl in added.items():
+        if col not in existing:
+            conn.execute(f'ALTER TABLE transcriptions ADD COLUMN {col} {decl}')
+
+
 def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA)
+    _migrate(conn)
+    conn.executescript(POST_MIGRATE_SCHEMA)
     conn.commit()
 
     # Ensure secret key exists

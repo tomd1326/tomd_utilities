@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}Senders{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-people text-primary me-2"></i>Senders</h4>
+  <a href="{{ url_for('transcribe_page') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-mic me-1"></i>Transcriber
+  </a>
+</div>
+
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-body p-4">
+    {% if senders %}
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead>
+          <tr class="text-muted small">
+            <th>Name</th>
+            <th class="text-end">Recordings</th>
+            <th class="text-end">Learned corrections</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in senders %}
+          <tr>
+            <td class="fw-medium">{{ s['name'] }}</td>
+            <td class="text-end">{{ s['tr_count'] }}</td>
+            <td class="text-end">{{ s['rule_count'] }}</td>
+            <td class="text-end">
+              <a href="{{ url_for('sender_detail', sid=s['id']) }}" class="btn btn-sm btn-outline-primary">
+                Manage
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-0">
+      No senders yet. Add one when you upload a recording, and corrections you make
+      will be remembered for them.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

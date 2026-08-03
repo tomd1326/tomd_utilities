@@ -2,18 +2,22 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import threading
 import uuid as _uuid
 from datetime import date, timedelta
 from functools import wraps
 from pathlib import Path
 
 import pandas as pd
-from flask import (Flask, flash, jsonify, redirect, render_template,
+from flask import (Flask, Response, flash, jsonify, redirect, render_template,
                    request, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
+import corrections
 import db
 import processing
+import transcribe
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -27,7 +31,7 @@ db.init_db()
 
 app = Flask(__name__)
 app.secret_key = db.get_or_create_secret_key()
-app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32 MB
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB (audio can be large)
 
 def get_account_choices() -> list[str]:
     conn = db.get_conn()
@@ -838,6 +842,400 @@ def delete_account(aid):
         flash(msg, 'success')
     conn.close()
     return redirect(url_for('settings'))
+
+# ---------------------------------------------------------------------------
+# Audio transcriber
+# ---------------------------------------------------------------------------
+
+AUDIO_FOLDER = UPLOAD_FOLDER / 'audio'
+AUDIO_FOLDER.mkdir(parents=True, exist_ok=True)
+
+# In-flight transcription jobs, keyed by job id. Transcription can run for
+# minutes, so it happens on a worker thread and the browser polls for
+# progress rather than holding a request open.
+_jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
+
+
+def _job_set(job_id: str, **fields) -> None:
+    with _jobs_lock:
+        if job_id in _jobs:
+            _jobs[job_id].update(fields)
+
+
+def _run_transcription(job_id: str, tmp_path: Path, safe_name: str, size: int,
+                       model_size: str, language: str | None,
+                       sender_id: int | None, username: str) -> None:
+    """Worker: transcribe, apply sender corrections, store the result."""
+    try:
+        _job_set(job_id, stage='loading', progress=0.0)
+
+        def on_progress(frac: float) -> None:
+            _job_set(job_id, stage='transcribing', progress=frac)
+
+        result = transcribe.transcribe_file(
+            tmp_path, model_size=model_size, language=language,
+            progress_cb=on_progress,
+        )
+
+        if not result['text']:
+            _job_set(job_id, stage='error', error='No speech detected in that file.')
+            return
+
+        _job_set(job_id, stage='correcting', progress=1.0)
+
+        raw_text = result['text']
+        final_text, applied, suggested = raw_text, [], []
+        if sender_id:
+            rules = _sender_rules(sender_id)
+            final_text, applied, suggested = corrections.apply_corrections(
+                raw_text, result['words'], rules
+            )
+
+        conn = db.get_conn()
+        cur = conn.execute(
+            '''INSERT INTO transcriptions
+               (username, sender_id, filename, file_size, duration, language, model,
+                text, raw_text, segments_json, words_json, applied_json, suggested_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (username, sender_id, safe_name, size, result['duration'],
+             result['language'], result['model'], final_text, raw_text,
+             json.dumps(result['segments']), json.dumps(result['words']),
+             json.dumps([a.__dict__ for a in applied]),
+             json.dumps([s.__dict__ for s in suggested]))
+        )
+        conn.commit()
+        new_id = cur.lastrowid
+        conn.close()
+
+        _job_set(job_id, stage='done', progress=1.0,
+                 transcription_id=new_id, applied=len(applied))
+    except Exception as exc:  # noqa: BLE001 - report any failure to the poller
+        app.logger.exception('Transcription failed for %s', safe_name)
+        _job_set(job_id, stage='error', error=str(exc))
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _all_senders() -> list:
+    conn = db.get_conn()
+    rows = conn.execute(
+        'SELECT id, name FROM senders WHERE username=? ORDER BY name COLLATE NOCASE',
+        (session['username'],)
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def _resolve_sender(sender_id: str, new_name: str) -> int | None:
+    """Return a sender id from either an existing selection or a new name."""
+    new_name = (new_name or '').strip()
+    if new_name:
+        conn = db.get_conn()
+        conn.execute(
+            'INSERT OR IGNORE INTO senders (username, name) VALUES (?, ?)',
+            (session['username'], new_name)
+        )
+        conn.commit()
+        row = conn.execute(
+            'SELECT id FROM senders WHERE username=? AND name=? COLLATE NOCASE',
+            (session['username'], new_name)
+        ).fetchone()
+        conn.close()
+        return row['id'] if row else None
+
+    if sender_id and sender_id.isdigit():
+        conn = db.get_conn()
+        row = conn.execute(
+            'SELECT id FROM senders WHERE id=? AND username=?',
+            (int(sender_id), session['username'])
+        ).fetchone()
+        conn.close()
+        return row['id'] if row else None
+    return None
+
+
+def _sender_rules(sender_id: int) -> list[dict]:
+    conn = db.get_conn()
+    rows = conn.execute(
+        '''SELECT wrong_text, correct_text FROM sender_corrections
+           WHERE sender_id=? ORDER BY times_seen DESC''',
+        (sender_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.route('/transcribe', methods=['GET', 'POST'])
+@login_required
+def transcribe_page():
+    if request.method == 'POST':
+        f = request.files.get('audio')
+        if not f or not f.filename:
+            return jsonify({'error': 'Choose an audio file first.'}), 400
+
+        if not transcribe.is_allowed(f.filename):
+            allowed = ', '.join(sorted(transcribe.ALLOWED_AUDIO))
+            return jsonify({'error': f'Unsupported file type. Allowed: {allowed}'}), 400
+
+        model_size = request.form.get('model', transcribe.DEFAULT_MODEL)
+        if model_size not in dict(transcribe.MODEL_SIZES):
+            model_size = transcribe.DEFAULT_MODEL
+
+        # 'auto' means let Whisper detect; anything else pins the language.
+        language = request.form.get('language') or None
+        if language == 'auto':
+            language = None
+
+        sender_id = _resolve_sender(
+            request.form.get('sender_id', ''), request.form.get('new_sender', '')
+        )
+
+        # Keep the extension: the decoder uses it as a container hint.
+        safe_name = secure_filename(f.filename) or 'audio'
+        tmp_path = AUDIO_FOLDER / f'{_uuid.uuid4().hex}_{safe_name}'
+        f.save(str(tmp_path))
+        size = tmp_path.stat().st_size
+
+        job_id = _uuid.uuid4().hex
+        with _jobs_lock:
+            _jobs[job_id] = {
+                'stage': 'queued', 'progress': 0.0, 'filename': safe_name,
+                'username': session['username'],
+            }
+
+        threading.Thread(
+            target=_run_transcription,
+            args=(job_id, tmp_path, safe_name, size, model_size, language,
+                  sender_id, session['username']),
+            daemon=True,
+        ).start()
+
+        return jsonify({'job_id': job_id})
+
+    conn = db.get_conn()
+    rows = conn.execute(
+        '''SELECT t.id, t.filename, t.duration, t.language, t.model, t.created_at,
+                  s.name AS sender_name,
+                  substr(t.text, 1, 160) AS preview
+           FROM transcriptions t
+           LEFT JOIN senders s ON s.id = t.sender_id
+           WHERE t.username=?
+           ORDER BY t.created_at DESC, t.id DESC LIMIT 50''',
+        (session['username'],)
+    ).fetchall()
+    conn.close()
+
+    return render_template(
+        'transcribe.html',
+        recent=rows,
+        senders=_all_senders(),
+        models=transcribe.MODEL_SIZES,
+        default_model=transcribe.DEFAULT_MODEL,
+        fmt_duration=transcribe.format_timestamp,
+    )
+
+
+@app.route('/transcribe/<int:tid>')
+@login_required
+def transcription_detail(tid: int):
+    conn = db.get_conn()
+    row = conn.execute(
+        '''SELECT t.*, s.name AS sender_name
+           FROM transcriptions t
+           LEFT JOIN senders s ON s.id = t.sender_id
+           WHERE t.id=? AND t.username=?''',
+        (tid, session['username'])
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        flash('Transcription not found.', 'warning')
+        return redirect(url_for('transcribe_page'))
+
+    return render_template(
+        'transcription_detail.html',
+        t=row,
+        sender_name=row['sender_name'],
+        segments=json.loads(row['segments_json']),
+        applied=json.loads(row['applied_json'] or '[]'),
+        suggested=json.loads(row['suggested_json'] or '[]'),
+        fmt_duration=transcribe.format_timestamp,
+    )
+
+
+@app.route('/transcribe/status/<job_id>')
+@login_required
+def transcribe_status(job_id: str):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            return jsonify({'error': 'Unknown job.'}), 404
+        # Don't let one user poll another's job.
+        if job.get('username') != session['username']:
+            return jsonify({'error': 'Unknown job.'}), 404
+        payload = {k: v for k, v in job.items() if k != 'username'}
+        # Once reported as finished, the job can be dropped.
+        if job['stage'] in ('done', 'error'):
+            _jobs.pop(job_id, None)
+    return jsonify(payload)
+
+
+@app.route('/transcribe/<int:tid>/save', methods=['POST'])
+@login_required
+def transcription_save(tid: int):
+    """
+    Save a user-edited transcript and learn from the edits.
+
+    Whatever changed between the stored text and the submitted text is
+    turned into correction rules for this transcript's sender, so the same
+    mishearing can be fixed automatically next time.
+    """
+    new_text = (request.form.get('text') or '').strip()
+    if not new_text:
+        flash('Transcript cannot be empty.', 'warning')
+        return redirect(url_for('transcription_detail', tid=tid))
+
+    conn = db.get_conn()
+    row = conn.execute(
+        'SELECT text, sender_id FROM transcriptions WHERE id=? AND username=?',
+        (tid, session['username'])
+    ).fetchone()
+    if not row:
+        conn.close()
+        flash('Transcription not found.', 'warning')
+        return redirect(url_for('transcribe_page'))
+
+    old_text = row['text']
+    sender_id = row['sender_id']
+
+    conn.execute(
+        'UPDATE transcriptions SET text=? WHERE id=? AND username=?',
+        (new_text, tid, session['username'])
+    )
+
+    learned = 0
+    if sender_id and new_text != old_text:
+        for span in corrections.diff_corrections(old_text, new_text):
+            existing = conn.execute(
+                '''SELECT id FROM sender_corrections
+                   WHERE sender_id=? AND wrong_text=? AND correct_text=?''',
+                (sender_id, span.wrong_text, span.correct_text)
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    'UPDATE sender_corrections SET times_seen = times_seen + 1 WHERE id=?',
+                    (existing['id'],)
+                )
+            else:
+                conn.execute(
+                    '''INSERT INTO sender_corrections (sender_id, wrong_text, correct_text)
+                       VALUES (?, ?, ?)''',
+                    (sender_id, span.wrong_text, span.correct_text)
+                )
+                learned += 1
+
+    conn.commit()
+    conn.close()
+
+    if not sender_id:
+        flash('Saved. Assign a sender to this transcription to learn from your edits.', 'info')
+    elif learned:
+        flash(f'Saved. Learned {learned} new correction(s) for future transcripts.', 'success')
+    else:
+        flash('Saved.', 'success')
+    return redirect(url_for('transcription_detail', tid=tid))
+
+
+@app.route('/senders')
+@login_required
+def senders_page():
+    conn = db.get_conn()
+    rows = conn.execute(
+        '''SELECT s.id, s.name,
+                  (SELECT COUNT(*) FROM sender_corrections c WHERE c.sender_id = s.id) AS rule_count,
+                  (SELECT COUNT(*) FROM transcriptions t WHERE t.sender_id = s.id) AS tr_count
+           FROM senders s WHERE s.username=? ORDER BY s.name COLLATE NOCASE''',
+        (session['username'],)
+    ).fetchall()
+    conn.close()
+    return render_template('senders.html', senders=rows)
+
+
+@app.route('/senders/<int:sid>')
+@login_required
+def sender_detail(sid: int):
+    conn = db.get_conn()
+    sender = conn.execute(
+        'SELECT * FROM senders WHERE id=? AND username=?',
+        (sid, session['username'])
+    ).fetchone()
+    if not sender:
+        conn.close()
+        flash('Sender not found.', 'warning')
+        return redirect(url_for('senders_page'))
+    rules = conn.execute(
+        '''SELECT * FROM sender_corrections WHERE sender_id=?
+           ORDER BY times_seen DESC, id DESC''',
+        (sid,)
+    ).fetchall()
+    conn.close()
+    return render_template('sender_detail.html', sender=sender, rules=rules)
+
+
+@app.route('/senders/<int:sid>/rule/<int:rid>/delete', methods=['POST'])
+@login_required
+def sender_rule_delete(sid: int, rid: int):
+    conn = db.get_conn()
+    owns = conn.execute(
+        'SELECT 1 FROM senders WHERE id=? AND username=?',
+        (sid, session['username'])
+    ).fetchone()
+    if owns:
+        conn.execute(
+            'DELETE FROM sender_corrections WHERE id=? AND sender_id=?', (rid, sid)
+        )
+        conn.commit()
+        flash('Correction removed.', 'success')
+    conn.close()
+    return redirect(url_for('sender_detail', sid=sid))
+
+
+@app.route('/transcribe/<int:tid>/download')
+@login_required
+def transcription_download(tid: int):
+    conn = db.get_conn()
+    row = conn.execute(
+        'SELECT filename, text FROM transcriptions WHERE id=? AND username=?',
+        (tid, session['username'])
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        flash('Transcription not found.', 'warning')
+        return redirect(url_for('transcribe_page'))
+
+    stem = Path(row['filename']).stem or 'transcription'
+    return Response(
+        row['text'],
+        mimetype='text/plain; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{stem}.txt"'},
+    )
+
+
+@app.route('/transcribe/<int:tid>/delete', methods=['POST'])
+@login_required
+def transcription_delete(tid: int):
+    conn = db.get_conn()
+    conn.execute(
+        'DELETE FROM transcriptions WHERE id=? AND username=?',
+        (tid, session['username'])
+    )
+    conn.commit()
+    conn.close()
+    flash('Transcription deleted.', 'success')
+    return redirect(url_for('transcribe_page'))
+
 
 # ---------------------------------------------------------------------------
 # Entry point

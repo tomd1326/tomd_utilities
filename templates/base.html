@@ -21,6 +21,11 @@
     .sidebar .nav-link:hover  { color: #fff; background: rgba(255,255,255,.08); }
     .sidebar .nav-link.active { color: #fff; background: #0d6efd; }
     .sidebar .nav-link i      { width: 18px; margin-right: 6px; }
+    .sidebar .nav-section {
+      color: rgba(255,255,255,.35); font-size: .7rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .05em;
+      padding: .9rem 1rem .25rem;
+    }
     .sidebar-footer { padding: .75rem 1rem; border-top: 1px solid rgba(255,255,255,.1); }
     .main-content { flex: 1; min-width: 0; overflow-x: auto; background: #f8f9fa; min-height: 100vh; }
     .page-inner { padding: 1.5rem 2rem; }
@@ -36,17 +41,24 @@
 </head>
 <body>
 
-{% if session.username %}
+{% if session.username and not no_sidebar %}
 <div class="d-flex">
   <nav class="sidebar d-flex flex-column">
-    <a class="brand" href="{{ url_for('index') }}">
-      <i class="bi bi-wallet2 me-2"></i>Expenditure
+    <a class="brand" href="{{ url_for('home') }}">
+      <i class="bi bi-grid-3x3-gap me-2"></i>Tools
     </a>
     <ul class="nav flex-column px-0 mb-auto">
+      <li class="nav-section">Expenditure</li>
       <li><a class="nav-link {% if request.endpoint=='transactions' %}active{% endif %}" href="{{ url_for('transactions') }}"><i class="bi bi-table"></i>Transactions</a></li>
       <li><a class="nav-link {% if request.endpoint=='charts' %}active{% endif %}"       href="{{ url_for('charts') }}"><i class="bi bi-bar-chart-line"></i>Charts</a></li>
       <li><a class="nav-link {% if request.endpoint=='upload' %}active{% endif %}"       href="{{ url_for('upload') }}"><i class="bi bi-cloud-upload"></i>Upload</a></li>
       <li><a class="nav-link {% if request.endpoint=='mappings' %}active{% endif %}"     href="{{ url_for('mappings') }}"><i class="bi bi-tags"></i>Mappings</a></li>
+
+      <li class="nav-section">Audio</li>
+      <li><a class="nav-link {% if request.endpoint in ('transcribe_page','transcription_detail') %}active{% endif %}" href="{{ url_for('transcribe_page') }}"><i class="bi bi-mic"></i>Transcriber</a></li>
+      <li><a class="nav-link {% if request.endpoint in ('senders_page','sender_detail') %}active{% endif %}" href="{{ url_for('senders_page') }}"><i class="bi bi-people"></i>Senders</a></li>
+
+      <li class="nav-section">Account</li>
       <li><a class="nav-link {% if request.endpoint=='prefs' %}active{% endif %}"        href="{{ url_for('prefs') }}"><i class="bi bi-sliders"></i>Preferences</a></li>
       <li><a class="nav-link {% if request.endpoint=='change_password' %}active{% endif %}" href="{{ url_for('change_password') }}"><i class="bi bi-key"></i>Password</a></li>
     </ul>
@@ -67,6 +79,19 @@
       {% block content %}{% endblock %}
     </div>
   </main>
+</div>
+
+{% elif session.username %}
+{# Logged in, but this page opts out of the sidebar (e.g. the home launcher). #}
+<div class="container">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+    <div class="alert alert-{{ cat }} alert-dismissible fade show mt-3">
+      {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+  {% endwith %}
+  {{ self.content() }}
 </div>
 
 {% else %}

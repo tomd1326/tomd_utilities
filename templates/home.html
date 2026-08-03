@@ -1,10 +1,14 @@
 {% extends 'base.html' %}
-{% block title %}Home — Expenditure{% endblock %}
+{% set no_sidebar = true %}
+{% block title %}Tools{% endblock %}
 
 {% block content %}
-<div class="d-flex flex-column align-items-center justify-content-center" style="min-height: 70vh; gap: 1rem;">
-  <a href="{{ url_for('transactions') }}" class="btn btn-primary btn-lg" style="width: 220px;">
-    <i class="bi bi-wallet2 me-2"></i>Expenditure
+<div class="d-flex flex-column align-items-center justify-content-center" style="min-height: 80vh; gap: 1rem;">
+  <a href="{{ url_for('transactions') }}" class="btn btn-primary btn-lg" style="width: 260px;">
+    <i class="bi bi-wallet2 me-2"></i>Expenditure Tracker
+  </a>
+  <a href="{{ url_for('transcribe_page') }}" class="btn btn-primary btn-lg" style="width: 260px;">
+    <i class="bi bi-mic me-2"></i>Audio Transcriber
   </a>
 </div>
 {% endblock %}
