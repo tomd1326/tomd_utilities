@@ -54,9 +54,12 @@
       <li><a class="nav-link {% if request.endpoint=='upload' %}active{% endif %}"       href="{{ url_for('upload') }}"><i class="bi bi-cloud-upload"></i>Upload</a></li>
       <li><a class="nav-link {% if request.endpoint=='mappings' %}active{% endif %}"     href="{{ url_for('mappings') }}"><i class="bi bi-tags"></i>Mappings</a></li>
 
-      <li class="nav-section">Audio</li>
-      <li><a class="nav-link {% if request.endpoint in ('transcribe_page','transcription_detail') %}active{% endif %}" href="{{ url_for('transcribe_page') }}"><i class="bi bi-mic"></i>Transcriber</a></li>
-      <li><a class="nav-link {% if request.endpoint in ('senders_page','sender_detail') %}active{% endif %}" href="{{ url_for('senders_page') }}"><i class="bi bi-people"></i>Senders</a></li>
+      <li class="nav-section">Share Dealings</li>
+      <li><a class="nav-link {% if request.endpoint=='shares_dashboard' %}active{% endif %}" href="{{ url_for('shares_dashboard') }}"><i class="bi bi-graph-up-arrow"></i>Portfolio</a></li>
+      <li><a class="nav-link {% if request.endpoint=='shares_trades' %}active{% endif %}"    href="{{ url_for('shares_trades') }}"><i class="bi bi-receipt"></i>Trades</a></li>
+      <li><a class="nav-link {% if request.endpoint=='shares_signals' %}active{% endif %}"   href="{{ url_for('shares_signals') }}"><i class="bi bi-bullseye"></i>Signals &amp; Outlook</a></li>
+      <li><a class="nav-link {% if request.endpoint=='shares_news' %}active{% endif %}"      href="{{ url_for('shares_news') }}"><i class="bi bi-newspaper"></i>News</a></li>
+      <li><a class="nav-link {% if request.endpoint=='shares_plan' %}active{% endif %}"      href="{{ url_for('shares_plan') }}"><i class="bi bi-clipboard-check"></i>Plan &amp; Platforms</a></li>
 
       <li class="nav-section">Account</li>
       <li><a class="nav-link {% if request.endpoint=='prefs' %}active{% endif %}"        href="{{ url_for('prefs') }}"><i class="bi bi-sliders"></i>Preferences</a></li>

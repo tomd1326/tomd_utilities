@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% block title %}News{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-newspaper text-primary me-2"></i>News</h4>
+  <a href="{{ url_for('shares_dashboard') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-graph-up-arrow me-1"></i>Portfolio
+  </a>
+</div>
+
+{% if d.topics %}
+<ul class="nav nav-tabs mb-3" role="tablist">
+  {% for topic, items in d.topics %}
+  <li class="nav-item">
+    <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#topic-{{ loop.index }}" type="button">
+      {{ topic }} <span class="badge bg-secondary">{{ items|length }}</span>
+    </button>
+  </li>
+  {% endfor %}
+</ul>
+<div class="tab-content mb-3">
+  {% for topic, items in d.topics %}
+  <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="topic-{{ loop.index }}">
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-body p-4">
+        {% for n in items %}
+        <div class="mb-2">
+          <a href="{{ n.link }}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">{{ n.title }}</a>
+          <div class="text-muted small">{{ n.source }}{% if n.published %} · {{ n.published }}{% endif %}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">No headlines loaded yet. Press Update Now on the Portfolio page.</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm rounded-3" id="feeds">
+  <div class="card-body p-4">
+    <h6>News Sources</h6>
+    <p class="small text-muted">
+      Read on every update. News on each share you hold is searched for automatically and shown under My Holdings.
+    </p>
+    <table class="table table-sm align-middle">
+      <thead><tr class="text-muted small"><th>Topic</th><th>Name</th><th>Address</th><th></th></tr></thead>
+      <tbody>
+        {% for f in d.feeds %}
+        <tr>
+          <td>{{ f.topic }}</td>
+          <td>{{ f.name }}</td>
+          <td class="small text-muted text-break">{{ f.url }}</td>
+          <td class="text-end">
+            <form method="post" action="{{ url_for('shares_feed_delete', fid=f.id) }}"
+                  onsubmit="return confirm('Remove this news source?');">
+              <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <form method="post" action="{{ url_for('shares_feed_add') }}" class="row g-2">
+      <div class="col-md-2">
+        <input type="text" name="topic" class="form-control" placeholder="Topic" list="topic-list" required>
+        <datalist id="topic-list">
+          {% for t in ['Markets', 'Forecasts', 'Economy', 'Politics', 'World & Conflict'] %}<option value="{{ t }}">{% endfor %}
+        </datalist>
+      </div>
+      <div class="col-md-3">
+        <input type="text" name="search" class="form-control" placeholder="Search phrase, e.g. oil price OPEC">
+      </div>
+      <div class="col-md-2">
+        <input type="text" name="name" class="form-control" placeholder="Name (optional for a search)">
+      </div>
+      <div class="col-md-3">
+        <input type="text" name="url" class="form-control" placeholder="Or an RSS feed address">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>Add Source</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

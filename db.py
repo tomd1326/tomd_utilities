@@ -75,52 +75,81 @@ CREATE TABLE IF NOT EXISTS accounts (
     reader_label TEXT
 );
 
-CREATE TABLE IF NOT EXISTS senders (
+CREATE TABLE IF NOT EXISTS share_instruments (
+    ticker     TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    currency   TEXT,
+    kind       TEXT,
+    role       TEXT NOT NULL DEFAULT 'watch',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS share_prices (
+    ticker    TEXT NOT NULL,
+    date      TEXT NOT NULL,
+    close     REAL NOT NULL,
+    adj_close REAL,
+    PRIMARY KEY (ticker, date)
+);
+
+CREATE TABLE IF NOT EXISTS share_trades (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     username   TEXT NOT NULL,
-    name       TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (username, name COLLATE NOCASE)
+    trade_date TEXT NOT NULL,
+    ticker     TEXT NOT NULL,
+    side       TEXT NOT NULL,
+    quantity   REAL NOT NULL,
+    total_gbp  REAL NOT NULL,
+    fees_gbp   REAL NOT NULL DEFAULT 0,
+    platform   TEXT,
+    account    TEXT,
+    notes      TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS sender_corrections (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    sender_id     INTEGER NOT NULL REFERENCES senders(id) ON DELETE CASCADE,
-    wrong_text    TEXT NOT NULL,
-    correct_text  TEXT NOT NULL,
-    times_seen    INTEGER NOT NULL DEFAULT 1,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+CREATE TABLE IF NOT EXISTS share_feeds (
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    name  TEXT NOT NULL,
+    url   TEXT NOT NULL UNIQUE,
+    topic TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS transcriptions (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    username       TEXT NOT NULL,
-    sender_id      INTEGER REFERENCES senders(id) ON DELETE SET NULL,
-    filename       TEXT NOT NULL,
-    file_size      INTEGER,
-    duration       REAL,
-    language       TEXT,
-    model          TEXT,
-    text           TEXT NOT NULL,
-    raw_text       TEXT,
-    segments_json  TEXT NOT NULL DEFAULT '[]',
-    words_json     TEXT NOT NULL DEFAULT '[]',
-    applied_json   TEXT NOT NULL DEFAULT '[]',
-    suggested_json TEXT NOT NULL DEFAULT '[]',
-    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+CREATE TABLE IF NOT EXISTS share_news (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic      TEXT NOT NULL,
+    source     TEXT,
+    title      TEXT NOT NULL,
+    link       TEXT NOT NULL UNIQUE,
+    published  TEXT,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS share_platforms (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    holding_fee TEXT,
+    dealing_fee TEXT,
+    fx_fee      TEXT,
+    accounts    TEXT,
+    yearly_cost REAL,
+    notes       TEXT,
+    source_url  TEXT,
+    checked_on  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS share_facts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    fact       TEXT NOT NULL,
+    source_url TEXT,
+    checked_on TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_share_trades_user ON share_trades(username, trade_date);
+CREATE INDEX IF NOT EXISTS idx_share_news_topic  ON share_news(topic, published DESC);
 CREATE INDEX IF NOT EXISTS idx_tx_date     ON transactions(date);
 CREATE INDEX IF NOT EXISTS idx_tx_company  ON transactions(company);
 CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category);
-CREATE INDEX IF NOT EXISTS idx_trs_user    ON transcriptions(username, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_sc_sender   ON sender_corrections(sender_id);
-"""
-
-# Indexes that depend on columns added by _migrate, so they can only be
-# created after it has run.
-POST_MIGRATE_SCHEMA = """
-CREATE INDEX IF NOT EXISTS idx_trs_sender  ON transcriptions(sender_id);
 """
 
 
@@ -145,32 +174,9 @@ def get_or_create_secret_key() -> str:
     return key
 
 
-def _migrate(conn: sqlite3.Connection) -> None:
-    """
-    Add columns introduced after a table first shipped.
-
-    CREATE TABLE IF NOT EXISTS silently does nothing on an existing table,
-    so new columns have to be added explicitly for databases created by an
-    earlier version.
-    """
-    existing = {r['name'] for r in conn.execute('PRAGMA table_info(transcriptions)')}
-    added = {
-        'sender_id':      'INTEGER REFERENCES senders(id) ON DELETE SET NULL',
-        'raw_text':       'TEXT',
-        'words_json':     "TEXT NOT NULL DEFAULT '[]'",
-        'applied_json':   "TEXT NOT NULL DEFAULT '[]'",
-        'suggested_json': "TEXT NOT NULL DEFAULT '[]'",
-    }
-    for col, decl in added.items():
-        if col not in existing:
-            conn.execute(f'ALTER TABLE transcriptions ADD COLUMN {col} {decl}')
-
-
 def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA)
-    _migrate(conn)
-    conn.executescript(POST_MIGRATE_SCHEMA)
     conn.commit()
 
     # Ensure secret key exists

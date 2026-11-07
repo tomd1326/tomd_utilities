@@ -1,0 +1,247 @@
+{% extends 'base.html' %}
+{% block title %}Signals & Outlook{% endblock %}
+
+{% macro change(v) %}<span class="{{ 'value-pos' if v is not none and v >= 0 else 'value-neg' if v is not none else 'text-muted' }}">{{ v|pct }}</span>{% endmacro %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-bullseye text-primary me-2"></i>Signals &amp; Outlook</h4>
+  <a href="{{ url_for('shares_dashboard') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-graph-up-arrow me-1"></i>Portfolio
+  </a>
+</div>
+
+<div class="alert alert-secondary small">
+  Signals are worked out by fixed rules from price history (is the price rising, and how it has done against the
+  others on the list). They show what is going up now, not what will happen next. The outlook figures show what a
+  year could look like if the past repeated in a random order. Nothing here can promise a result.
+  All figures are in pounds and include dividends.
+</div>
+
+{% if d.portfolio %}
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-body p-4">
+    <h6>Outlook For What You Hold (Next 12 Months)</h6>
+    <div class="row g-3 text-center">
+      <div class="col"><div class="text-muted small">Bad Year (1 In 20)</div><div class="fs-5">{{ change(d.portfolio.p5) }}</div></div>
+      <div class="col"><div class="text-muted small">Poor Year (1 In 4)</div><div class="fs-5">{{ change(d.portfolio.p25) }}</div></div>
+      <div class="col"><div class="text-muted small">Middle Result</div><div class="fs-5">{{ change(d.portfolio.p50) }}</div></div>
+      <div class="col"><div class="text-muted small">Good Year (1 In 4)</div><div class="fs-5">{{ change(d.portfolio.p75) }}</div></div>
+      <div class="col"><div class="text-muted small">Great Year (1 In 20)</div><div class="fs-5">{{ change(d.portfolio.p95) }}</div></div>
+      <div class="col"><div class="text-muted small">Chance Of {{ d.settings.target_pct|num(0) }}%+</div><div class="fs-5 fw-semibold">{{ d.portfolio.chance_target|share }}</div></div>
+      <div class="col"><div class="text-muted small">Chance Of A Loss</div><div class="fs-5 fw-semibold">{{ d.portfolio.chance_loss|share }}</div></div>
+    </div>
+    <div class="text-muted small mt-2">Based on {{ d.portfolio.years }} years of prices shared by every share you hold.</div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-body p-4">
+    <h6>Watchlist Signals</h6>
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead>
+          <tr class="text-muted small">
+            <th>Share</th><th>Signal</th><th class="text-end">Score</th><th class="text-end">Price</th>
+            <th class="text-end">Month</th><th class="text-end">6 Months</th><th class="text-end">Year</th>
+            <th class="text-end">3 Years (Per Year)</th><th class="text-end">5 Years (Per Year)</th>
+            <th class="text-end">Yearly Swing</th><th class="text-end">Biggest Fall</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in d.rows %}
+          <tr>
+            <td>
+              <span class="fw-medium">{{ r.name }}</span>
+              <div class="text-muted small">{{ r.ticker }}{% if r.kind %} · {{ r.kind }}{% endif %}</div>
+            </td>
+            {% if r.has_prices %}
+            <td>
+              <span class="badge {{ 'bg-success' if r.label == 'Buy Candidate' else 'bg-warning text-dark' if r.label == 'Hold / Watch' else 'bg-danger' if r.label == 'Avoid For Now' else 'bg-secondary' }}">{{ r.label }}</span>
+              <div class="small text-muted mt-1">{% for why in r.reasons %}{{ why }}<br>{% endfor %}</div>
+            </td>
+            <td class="text-end fw-semibold">{{ r.score if r.score is not none else '—' }}</td>
+            <td class="text-end">{{ r.price|gbp }}</td>
+            <td class="text-end">{{ change(r.r1m) }}</td>
+            <td class="text-end">{{ change(r.r6m) }}</td>
+            <td class="text-end">{{ change(r.r1y) }}</td>
+            <td class="text-end">{{ change(r.rate3) }}</td>
+            <td class="text-end">{{ change(r.rate5) }}</td>
+            <td class="text-end">{{ r.swing|share if r.enough else '—' }}</td>
+            <td class="text-end">{{ change(r.max_fall) if r.enough else '—' }}</td>
+            {% else %}
+            <td colspan="10" class="text-muted small">No prices yet. Press Update Now on the Portfolio page.</td>
+            {% endif %}
+            <td class="text-end">
+              <form method="post" action="{{ url_for('shares_instrument_delete') }}"
+                    onsubmit="return confirm('Remove {{ r.ticker }} from the watchlist?');">
+                <input type="hidden" name="ticker" value="{{ r.ticker }}">
+                <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="text-muted small mt-2">
+      Score out of 100: 70 or more is a Buy Candidate, 40 to 69 Hold / Watch, under 40 Avoid For Now.
+      Yearly Swing is how far the price typically moves up or down in a year. Biggest Fall is the worst drop from a high in the history held.
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-body p-4">
+    <h6>Outlook For Each Share (Next 12 Months)</h6>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr class="text-muted small">
+            <th>Share</th><th class="text-end">Bad Year (1 In 20)</th><th class="text-end">Poor Year (1 In 4)</th>
+            <th class="text-end">Middle Result</th><th class="text-end">Good Year (1 In 4)</th>
+            <th class="text-end">Great Year (1 In 20)</th>
+            <th class="text-end">Chance Of {{ d.settings.target_pct|num(0) }}%+</th>
+            <th class="text-end">Chance Of A Loss</th><th class="text-end">Chance Of Losing 10%+</th>
+            <th class="text-end">Years Of History</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in d.rows if r.enough and r.outlook %}
+          <tr>
+            <td>{{ r.name }}</td>
+            <td class="text-end">{{ change(r.outlook.p5) }}</td>
+            <td class="text-end">{{ change(r.outlook.p25) }}</td>
+            <td class="text-end">{{ change(r.outlook.p50) }}</td>
+            <td class="text-end">{{ change(r.outlook.p75) }}</td>
+            <td class="text-end">{{ change(r.outlook.p95) }}</td>
+            <td class="text-end fw-semibold">{{ r.outlook.chance_target|share }}</td>
+            <td class="text-end">{{ r.outlook.chance_loss|share }}</td>
+            <td class="text-end">{{ r.outlook.chance_loss10|share }}</td>
+            <td class="text-end">{{ r.outlook.years }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="text-muted small mt-2">
+      A share with only a few years of history, all of them good, will look better here than it should.
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-body p-4">
+    <h6>Would Following The Trend Rule Have Helped?</h6>
+    <p class="small text-muted">
+      Compares holding the share the whole time against only holding it in months that start with the price above
+      its 200-day average (otherwise in cash earning nothing). Dealing costs are not included.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr class="text-muted small">
+            <th>Share</th><th class="text-end">Years Tested</th>
+            <th class="text-end">Held Throughout (Per Year)</th><th class="text-end">Trend Rule (Per Year)</th>
+            <th class="text-end">Biggest Fall, Held Throughout</th><th class="text-end">Biggest Fall, Trend Rule</th>
+            <th class="text-end">Time Invested Under Rule</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in d.rows if r.enough and r.rule_test %}
+          <tr>
+            <td>{{ r.name }}</td>
+            <td class="text-end">{{ r.rule_test.years }}</td>
+            <td class="text-end">{{ change(r.rule_test.hold_rate) }}</td>
+            <td class="text-end">{{ change(r.rule_test.rule_rate) }}</td>
+            <td class="text-end">{{ change(r.rule_test.hold_fall) }}</td>
+            <td class="text-end">{{ change(r.rule_test.rule_fall) }}</td>
+            <td class="text-end">{{ r.rule_test.time_held|share }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm rounded-3" id="add">
+  <div class="card-body p-4">
+    <h6>Add A Share, Fund Or Trust To The Watchlist</h6>
+    <div class="row g-2 mb-2">
+      <div class="col-md-5">
+        <input type="text" id="search-box" class="form-control" placeholder="Search by company or fund name, e.g. Rolls-Royce">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-outline-primary" id="search-btn"><i class="bi bi-search me-1"></i>Search</button>
+      </div>
+    </div>
+    <div id="search-results" class="mb-3"></div>
+    <form method="post" action="{{ url_for('shares_instrument_add') }}" class="row g-2" id="add-form">
+      <div class="col-md-3">
+        <input type="text" name="ticker" id="add-ticker" class="form-control" placeholder="Ticker, e.g. RR.L" required>
+      </div>
+      <div class="col-md-5">
+        <input type="text" name="name" id="add-name" class="form-control" placeholder="Name (left blank, the official name is used)">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-primary" id="add-btn"><i class="bi bi-plus-lg me-1"></i>Add To Watchlist</button>
+      </div>
+    </form>
+    <div class="form-text">London-listed shares end in .L (RR.L, VWRP.L). US shares have no ending (AAPL, NVDA).</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const box = document.getElementById('search-box');
+  const btn = document.getElementById('search-btn');
+  const out = document.getElementById('search-results');
+  const label = btn.innerHTML;
+
+  function search() {
+    const q = box.value.trim();
+    if (q.length < 2) return;
+    btn.disabled = true;
+    btn.textContent = 'Searching...';
+    fetch("{{ url_for('shares_search') }}?q=" + encodeURIComponent(q))
+      .then(r => r.json())
+      .then(rows => {
+        out.innerHTML = '';
+        if (!Array.isArray(rows) || !rows.length) {
+          out.textContent = 'Nothing found.';
+          return;
+        }
+        const list = document.createElement('div');
+        list.className = 'list-group';
+        rows.forEach(row => {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'list-group-item list-group-item-action small';
+          item.textContent = row.ticker + '  ·  ' + row.name + '  ·  ' + row.exchange + '  ·  ' + row.kind;
+          item.addEventListener('click', () => {
+            document.getElementById('add-ticker').value = row.ticker;
+            document.getElementById('add-name').value = row.name;
+          });
+          list.appendChild(item);
+        });
+        out.appendChild(list);
+      })
+      .catch(() => { out.textContent = 'Search is not available right now.'; })
+      .finally(() => { btn.disabled = false; btn.innerHTML = label; });
+  }
+
+  btn.addEventListener('click', search);
+  box.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
+
+  document.getElementById('add-form').addEventListener('submit', function () {
+    const add = document.getElementById('add-btn');
+    add.disabled = true;
+    add.textContent = 'Adding...';
+  });
+})();
+</script>
+{% endblock %}

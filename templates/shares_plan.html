@@ -1,0 +1,223 @@
+{% extends 'base.html' %}
+{% block title %}Plan & Platforms{% endblock %}
+
+{% macro change(v) %}<span class="{{ 'value-pos' if v is not none and v >= 0 else 'value-neg' if v is not none else 'text-muted' }}">{{ v|pct }}</span>{% endmacro %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-clipboard-check text-primary me-2"></i>Plan &amp; Platforms</h4>
+  <a href="{{ url_for('shares_dashboard') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-graph-up-arrow me-1"></i>Portfolio
+  </a>
+</div>
+
+<div class="alert alert-secondary small">
+  This page is general information to help you decide. It is not regulated personal financial advice, and shares
+  can fall as well as rise.
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-body p-4">
+        <h6>Your Figures</h6>
+        <form method="post" action="{{ url_for('shares_plan_settings') }}" class="row g-3">
+          <div class="col-6">
+            <label class="form-label fw-medium">Total Savings (£)</label>
+            <input type="text" name="total_savings" class="form-control" value="{{ d.settings.total_savings|num(0) }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-medium">Kept In Reserve (£)</label>
+            <input type="text" name="reserve" class="form-control" value="{{ d.settings.reserve|num(0) }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-medium">Yearly Target (%)</label>
+            <input type="text" name="target_pct" class="form-control" value="{{ d.settings.target_pct|num(0) }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-medium">Share In Whole-Market Funds (%)</label>
+            <input type="text" name="core_pct" class="form-control" value="{{ d.settings.core_pct|num(0) }}">
+          </div>
+          <div class="col-12">
+            <button class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save Figures</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-body p-4">
+        <h6>How The Money Splits</h6>
+        <table class="table table-sm mb-2">
+          <tbody>
+            <tr><td>Kept in reserve, in cash</td><td class="text-end fw-semibold">{{ d.settings.reserve|gbp }}</td></tr>
+            <tr><td>To invest</td><td class="text-end fw-semibold">{{ d.to_invest|gbp }}</td></tr>
+            <tr><td class="ps-4 text-muted">Whole-market funds ({{ d.settings.core_pct|num(0) }}%)</td><td class="text-end">{{ d.core|gbp }}</td></tr>
+            <tr><td class="ps-4 text-muted">Your own picks from the Signals page</td><td class="text-end">{{ d.picks|gbp }}</td></tr>
+            <tr><td>Gain needed in a year to reach {{ d.settings.target_pct|num(0) }}%</td><td class="text-end fw-semibold">{{ d.target_gain|gbp }}</td></tr>
+          </tbody>
+        </table>
+        <ol class="small mb-0">
+          <li>Keep the reserve in cash savings, with no more than the protected limit at any one bank (see Key Facts).</li>
+          <li>Fill the Stocks &amp; Shares ISA first: £20,000 before 5 April and another £20,000 from 6 April. Hold the rest in a general account until it can be moved in.</li>
+          <li>Put the larger part into low-cost funds that hold the whole market, and use the smaller part for picks.</li>
+          <li>Decide before buying how much of a fall in any one pick you will accept, and how often you will review (monthly is enough).</li>
+          <li>Do not borrow to invest, and stay out of spread betting and CFDs.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-body p-4">
+    <h6>How Often Has {{ d.settings.target_pct|num(0) }}% In A Year Actually Happened?</h6>
+    <p class="small text-muted">
+      Every 12-month period in each share's stored history, in pounds with dividends included. A high figure for a
+      share with a short history mostly reflects a few good recent years.
+    </p>
+    {% if d.history %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr class="text-muted small">
+            <th>Share</th><th class="text-end">Years Of History</th>
+            <th class="text-end">Periods That Made {{ d.settings.target_pct|num(0) }}%+</th>
+            <th class="text-end">Periods That Lost Money</th>
+            <th class="text-end">Best 12 Months</th><th class="text-end">Worst 12 Months</th>
+            <th class="text-end">Biggest Fall From A High</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in d.history %}
+          <tr>
+            <td>{{ r.name }} <span class="text-muted small">{{ r.ticker }}</span></td>
+            <td class="text-end">{{ (r.days / 252)|num(1) }}</td>
+            <td class="text-end fw-semibold">{{ r.hit_target|share }}</td>
+            <td class="text-end">{{ r.lost_money|share }}</td>
+            <td class="text-end">{{ change(r.best_year) }}</td>
+            <td class="text-end">{{ change(r.worst_year) }}</td>
+            <td class="text-end">{{ change(r.max_fall) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-0">Prices have not been loaded yet. Press Update Now on the Portfolio page.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm rounded-3 mb-3" id="platforms">
+  <div class="card-body p-4">
+    <h6>Platforms Compared</h6>
+    <p class="small text-muted">
+      Yearly Cost is for £50,000 held in ETFs in one account with 12 trades a year. It leaves out each fund's own
+      charge, which is the same wherever it is held. Cheapest first.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr class="text-muted small">
+            <th>Platform</th><th class="text-end">Yearly Cost</th><th>Holding Charge</th><th>Dealing Charge</th>
+            <th>Currency Charge</th><th>Accounts</th><th>Notes</th><th>Checked</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in d.platforms %}
+          <tr>
+            <td class="fw-medium">
+              {% if p.source_url %}<a href="{{ p.source_url }}" target="_blank" rel="noopener noreferrer">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}
+            </td>
+            <td class="text-end fw-semibold">{{ p.yearly_cost|gbp }}</td>
+            <td class="small">{{ p.holding_fee or '' }}</td>
+            <td class="small">{{ p.dealing_fee or '' }}</td>
+            <td class="small">{{ p.fx_fee or '' }}</td>
+            <td class="small">{{ p.accounts or '' }}</td>
+            <td class="small text-muted">{{ p.notes or '' }}</td>
+            <td class="small text-nowrap">{{ p.checked_on|fmtdate }}</td>
+            <td class="text-end text-nowrap">
+              <button type="button" class="btn btn-sm btn-outline-primary edit-platform" data-row='{{ p|tojson|forceescape }}'><i class="bi bi-pencil"></i></button>
+              <form method="post" action="{{ url_for('shares_platform_delete', pid=p.id) }}" class="d-inline"
+                    onsubmit="return confirm('Remove this platform?');">
+                <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <form method="post" action="{{ url_for('shares_platform_save') }}" class="row g-2" id="platform-form">
+      <div class="col-md-3"><input type="text" name="name" class="form-control" placeholder="Platform Name" required></div>
+      <div class="col-md-2"><input type="text" name="yearly_cost" class="form-control" placeholder="Yearly Cost (£)"></div>
+      <div class="col-md-4"><input type="text" name="holding_fee" class="form-control" placeholder="Holding Charge"></div>
+      <div class="col-md-3"><input type="text" name="dealing_fee" class="form-control" placeholder="Dealing Charge"></div>
+      <div class="col-md-3"><input type="text" name="fx_fee" class="form-control" placeholder="Currency Charge"></div>
+      <div class="col-md-3"><input type="text" name="accounts" class="form-control" placeholder="Accounts"></div>
+      <div class="col-md-4"><input type="text" name="source_url" class="form-control" placeholder="Charges Page Address"></div>
+      <div class="col-md-2"><input type="date" name="checked_on" class="form-control"></div>
+      <div class="col-md-10"><input type="text" name="notes" class="form-control" placeholder="Notes"></div>
+      <div class="col-md-2"><button class="btn btn-primary w-100">Save Platform</button></div>
+    </form>
+    <div class="form-text">Saving with the name of a platform already listed updates it. The pencil fills this form in.</div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm rounded-3" id="facts">
+  <div class="card-body p-4">
+    <h6>Key Facts</h6>
+    <table class="table table-sm align-middle">
+      <thead><tr class="text-muted small"><th>Topic</th><th>Fact</th><th>Checked</th><th></th></tr></thead>
+      <tbody>
+        {% for f in d.facts %}
+        <tr>
+          <td class="fw-medium text-nowrap">
+            {% if f.source_url %}<a href="{{ f.source_url }}" target="_blank" rel="noopener noreferrer">{{ f.topic }}</a>{% else %}{{ f.topic }}{% endif %}
+          </td>
+          <td class="small">{{ f.fact }}</td>
+          <td class="small text-nowrap">{{ f.checked_on|fmtdate }}</td>
+          <td class="text-end text-nowrap">
+            <button type="button" class="btn btn-sm btn-outline-primary edit-fact" data-row='{{ f|tojson|forceescape }}'><i class="bi bi-pencil"></i></button>
+            <form method="post" action="{{ url_for('shares_fact_delete', fid=f.id) }}" class="d-inline"
+                  onsubmit="return confirm('Remove this fact?');">
+              <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <form method="post" action="{{ url_for('shares_fact_save') }}" class="row g-2" id="fact-form">
+      <div class="col-md-3"><input type="text" name="topic" class="form-control" placeholder="Topic" required></div>
+      <div class="col-md-9"><input type="text" name="fact" class="form-control" placeholder="Fact" required></div>
+      <div class="col-md-7"><input type="text" name="source_url" class="form-control" placeholder="Source Address"></div>
+      <div class="col-md-3"><input type="date" name="checked_on" class="form-control"></div>
+      <div class="col-md-2"><button class="btn btn-primary w-100">Save Fact</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  function wire(buttonClass, formId) {
+    const form = document.getElementById(formId);
+    document.querySelectorAll('.' + buttonClass).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const row = JSON.parse(btn.dataset.row);
+        Array.from(form.elements).forEach(el => {
+          if (el.name && row[el.name] !== undefined) el.value = row[el.name] === null ? '' : row[el.name];
+        });
+        form.scrollIntoView({behavior: 'smooth', block: 'center'});
+      });
+    });
+  }
+  wire('edit-platform', 'platform-form');
+  wire('edit-fact', 'fact-form');
+})();
+</script>
+{% endblock %}

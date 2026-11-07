@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+{% block title %}Share Dealings{% endblock %}
+
+{% macro change(v) %}<span class="{{ 'value-pos' if v is not none and v >= 0 else 'value-neg' if v is not none else 'text-muted' }}">{{ v|pct }}</span>{% endmacro %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-graph-up-arrow text-primary me-2"></i>Share Dealings</h4>
+  <div class="d-flex align-items-center gap-3">
+    <span class="text-muted small" id="refresh-note">
+      {% if d.last_refresh %}Prices And News Updated {{ d.last_refresh }}{% else %}No Prices Loaded Yet{% endif %}
+    </span>
+    <button class="btn btn-sm btn-outline-primary" id="refresh-btn">
+      <i class="bi bi-arrow-repeat me-1"></i>Update Now
+    </button>
+  </div>
+</div>
+
+<div class="alert alert-info d-none" id="refresh-progress"></div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md">
+    <div class="card stat-card shadow-sm"><div class="card-body">
+      <div class="text-muted small">Money To Invest</div>
+      <div class="fs-4 fw-semibold">{{ d.to_invest|gbp }}</div>
+      <div class="small text-muted">{{ d.settings.reserve|gbp }} Kept In Reserve</div>
+    </div></div>
+  </div>
+  <div class="col-md">
+    <div class="card stat-card shadow-sm"><div class="card-body">
+      <div class="text-muted small">Invested So Far</div>
+      <div class="fs-4 fw-semibold">{{ d.cost|gbp }}</div>
+      <div class="small text-muted">{{ d.left_to_invest|gbp }} Still To Invest</div>
+    </div></div>
+  </div>
+  <div class="col-md">
+    <div class="card stat-card shadow-sm"><div class="card-body">
+      <div class="text-muted small">Value Today</div>
+      <div class="fs-4 fw-semibold">{{ d.value|gbp }}</div>
+      <div class="small">{{ change(d.gain_pct) }} <span class="text-muted">On Cost</span></div>
+    </div></div>
+  </div>
+  <div class="col-md">
+    <div class="card stat-card shadow-sm"><div class="card-body">
+      <div class="text-muted small">Gain On Holdings</div>
+      <div class="fs-4 fw-semibold {{ 'value-pos' if d.gain >= 0 else 'value-neg' }}">{{ d.gain|gbp }}</div>
+      <div class="small text-muted">{{ d.realised|gbp }} Made On Sales</div>
+    </div></div>
+  </div>
+  <div class="col-md">
+    <div class="card stat-card shadow-sm"><div class="card-body">
+      <div class="text-muted small">{{ d.settings.target_pct|num(0) }}% Target</div>
+      <div class="fs-4 fw-semibold">{{ d.target_gain|gbp }}</div>
+      <div class="small text-muted">{{ (d.gain + d.realised)|gbp }} So Far</div>
+    </div></div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-body p-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0">Holdings</h6>
+      <a href="{{ url_for('shares_trades') }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>Record A Trade</a>
+    </div>
+    {% if d.holdings %}
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead>
+          <tr class="text-muted small">
+            <th>Share</th><th class="text-end">Quantity</th><th class="text-end">Average Cost</th>
+            <th class="text-end">Price</th><th class="text-end">Today</th><th class="text-end">Cost</th>
+            <th class="text-end">Value</th><th class="text-end">Gain</th><th class="text-end">Gain %</th>
+            <th class="text-end">Share Of Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for h in d.holdings %}
+          <tr>
+            <td><span class="fw-medium">{{ h.name }}</span> <span class="text-muted small">{{ h.ticker }}</span></td>
+            <td class="text-end">{{ h.quantity|num(4) }}</td>
+            <td class="text-end">{{ h.avg_cost|gbp }}</td>
+            <td class="text-end">{{ h.price|gbp }}</td>
+            <td class="text-end">{{ change(h.day_pct) }}</td>
+            <td class="text-end">{{ h.cost|gbp }}</td>
+            <td class="text-end">{{ h.value|gbp }}</td>
+            <td class="text-end {{ 'value-pos' if h.gain is not none and h.gain >= 0 else 'value-neg' }}">{{ h.gain|gbp }}</td>
+            <td class="text-end">{{ change(h.gain_pct) }}</td>
+            <td class="text-end">{{ h.share|share }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-0">
+      Nothing held yet. Record each purchase on the Trades page and it will be valued here every day.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+{% if d.history %}
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-body p-4">
+    <h6>Value Against Money Put In</h6>
+    <div id="value-chart" style="height: 320px;"></div>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-body p-4">
+        <h6>Markets</h6>
+        {% if d.markets %}
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr class="text-muted small"><th></th><th class="text-end">Level</th><th class="text-end">Day</th><th class="text-end">Month</th><th class="text-end">Year</th></tr></thead>
+          <tbody>
+            {% for m in d.markets %}
+            <tr>
+              <td>{{ m.name }}</td>
+              <td class="text-end">{{ m.last|num(4 if m.last < 10 else 2) }}</td>
+              <td class="text-end">{{ change(m.r1d) }}</td>
+              <td class="text-end">{{ change(m.r1m) }}</td>
+              <td class="text-end">{{ change(m.r1y) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted small mb-0">Prices are being loaded for the first time. This takes about 20 seconds.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">Latest Headlines</h6>
+          <a href="{{ url_for('shares_news') }}" class="small">All News</a>
+        </div>
+        {% for n in d.news %}
+        <div class="mb-2">
+          <a href="{{ n.link }}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">{{ n.title }}</a>
+          <div class="text-muted small">{{ n.topic }} · {{ n.source }}{% if n.published %} · {{ n.published }}{% endif %}</div>
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">No headlines loaded yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const btn = document.getElementById('refresh-btn');
+  const box = document.getElementById('refresh-progress');
+  const label = btn.innerHTML;
+
+  function poll() {
+    fetch("{{ url_for('shares_refresh_status') }}").then(r => r.json()).then(s => {
+      if (s.running) {
+        box.classList.remove('d-none');
+        box.textContent = s.stage + (s.total ? ' (' + s.done + ' Of ' + s.total + ')' : '') + '...';
+        setTimeout(poll, 1200);
+      } else if (s.errors && s.errors.length) {
+        btn.disabled = false;
+        btn.innerHTML = label;
+        box.className = 'alert alert-warning';
+        box.textContent = 'Updated, but these could not be read: ' + s.errors.join('; ');
+      } else {
+        window.location.reload();
+      }
+    }).catch(() => setTimeout(poll, 3000));
+  }
+
+  function showBusy() {
+    btn.disabled = true;
+    btn.textContent = 'Updating...';
+    box.classList.remove('d-none');
+    box.textContent = 'Starting...';
+    poll();
+  }
+
+  btn.addEventListener('click', function () {
+    fetch("{{ url_for('shares_refresh') }}", {method: 'POST'}).then(showBusy);
+  });
+
+  {% if refreshing %}showBusy();{% endif %}
+
+  {% if d.history %}
+  const h = {{ d.history|tojson }};
+  Plotly.newPlot('value-chart', [
+    {x: h.x, y: h.value, name: 'Value', mode: 'lines', line: {color: '#0d6efd', width: 2}},
+    {x: h.x, y: h.invested, name: 'Money Put In', mode: 'lines', line: {color: '#6c757d', width: 2, dash: 'dot'}}
+  ], {
+    margin: {l: 60, r: 20, t: 10, b: 40},
+    yaxis: {tickprefix: '£', separatethousands: true},
+    legend: {orientation: 'h', y: 1.1},
+    hovermode: 'x unified'
+  }, {displayModeBar: false, responsive: true});
+  {% endif %}
+})();
+</script>
+{% endblock %}

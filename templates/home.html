@@ -5,10 +5,10 @@
 {% block content %}
 <div class="d-flex flex-column align-items-center justify-content-center" style="min-height: 80vh; gap: 1rem;">
   <a href="{{ url_for('transactions') }}" class="btn btn-primary btn-lg" style="width: 260px;">
-    <i class="bi bi-wallet2 me-2"></i>Expenditure Tracker
+    <i class="bi bi-wallet2 me-2"></i>Expenses Tracker
   </a>
-  <a href="{{ url_for('transcribe_page') }}" class="btn btn-primary btn-lg" style="width: 260px;">
-    <i class="bi bi-mic me-2"></i>Audio Transcriber
+  <a href="{{ url_for('shares_dashboard') }}" class="btn btn-primary btn-lg" style="width: 260px;">
+    <i class="bi bi-graph-up-arrow me-2"></i>Share Dealings
   </a>
 </div>
 {% endblock %}
