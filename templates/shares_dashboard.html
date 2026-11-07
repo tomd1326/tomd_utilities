@@ -17,6 +17,7 @@
 </div>
 
 <div class="alert alert-info d-none" id="refresh-progress"></div>
+<pre class="small bg-light border rounded p-2 d-none" id="refresh-log" style="max-height: 260px; overflow: auto;"></pre>
 
 <div class="row g-3 mb-3">
   <div class="col-md">
@@ -160,10 +161,16 @@
 (function () {
   const btn = document.getElementById('refresh-btn');
   const box = document.getElementById('refresh-progress');
+  const logBox = document.getElementById('refresh-log');
   const label = btn.innerHTML;
 
   function poll() {
     fetch("{{ url_for('shares_refresh_status') }}").then(r => r.json()).then(s => {
+      if (s.log && s.log.length) {
+        logBox.classList.remove('d-none');
+        logBox.textContent = s.log.join('\n');
+        logBox.scrollTop = logBox.scrollHeight;
+      }
       if (s.running) {
         box.classList.remove('d-none');
         box.textContent = s.stage + (s.total ? ' (' + s.done + ' Of ' + s.total + ')' : '') + '...';
@@ -173,6 +180,11 @@
         btn.innerHTML = label;
         box.className = 'alert alert-warning';
         box.textContent = 'Updated, but these could not be read: ' + s.errors.join('; ');
+      } else if (s.log && s.log.length && !s.log.some(l => l.indexOf('OK:') > -1)) {
+        btn.disabled = false;
+        btn.innerHTML = label;
+        box.className = 'alert alert-danger';
+        box.textContent = 'Nothing could be loaded. See the log below.';
       } else {
         window.location.reload();
       }

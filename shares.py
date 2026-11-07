@@ -260,13 +260,26 @@ def _parse_when(text: str | None) -> str | None:
 
 # Refreshing takes several seconds per source, so it runs on a worker thread
 # and the page polls for progress.
-_refresh: dict = {'running': False, 'stage': '', 'done': 0, 'total': 0, 'errors': []}
+_refresh: dict = {'running': False, 'stage': '', 'done': 0, 'total': 0, 'errors': [], 'log': []}
 _refresh_lock = threading.Lock()
+REFRESH_LOG = db.BASE_DIR / 'shares_refresh.log'
+
+
+def _log(text: str) -> None:
+    """Add a time-stamped line to the on-page log and to shares_refresh.log."""
+    line = f'{datetime.now().strftime("%H:%M:%S")}  {text}'
+    with _refresh_lock:
+        _refresh['log'].append(line)
+    try:
+        with open(REFRESH_LOG, 'a', encoding='utf-8') as fh:
+            fh.write(f'{datetime.now().strftime("%Y-%m-%d")} {line}\n')
+    except OSError:
+        pass
 
 
 def refresh_status() -> dict:
     with _refresh_lock:
-        return dict(_refresh, errors=list(_refresh['errors']))
+        return dict(_refresh, errors=list(_refresh['errors']), log=list(_refresh['log']))
 
 
 def needs_refresh() -> bool:
@@ -281,7 +294,7 @@ def start_refresh() -> bool:
     with _refresh_lock:
         if _refresh['running']:
             return False
-        _refresh.update(running=True, stage='Starting', done=0, total=0, errors=[])
+        _refresh.update(running=True, stage='Starting', done=0, total=0, errors=[], log=[])
     threading.Thread(target=refresh_all, daemon=True).start()
     return True
 
@@ -320,14 +333,22 @@ def _store_history(conn, ticker: str, meta: dict, rows: list[tuple]) -> None:
 def refresh_all() -> None:
     """Fetch prices for every tracked ticker, then every news feed."""
     try:
+        _log('Refresh started')
         conn = db.get_conn()
         tickers = [r['ticker'] for r in conn.execute('SELECT ticker FROM share_instruments')]
         _progress(stage='Getting Prices', done=0, total=len(tickers))
+        _log(f'Getting prices for {len(tickers)} tickers')
 
         def load(ticker):
+            started = datetime.now()
             try:
-                return ticker, fetch_history(ticker), None
+                result = fetch_history(ticker)
+                _log(f'Price OK: {ticker} ({len(result[1])} days, '
+                     f'{(datetime.now() - started).total_seconds():.1f}s)')
+                return ticker, result, None
             except Exception as exc:  # noqa: BLE001 - one bad ticker must not stop the rest
+                _log(f'Price FAILED: {ticker} after '
+                     f'{(datetime.now() - started).total_seconds():.1f}s - {exc}')
                 return ticker, None, str(exc)
 
         done = 0
@@ -362,8 +383,10 @@ def refresh_all() -> None:
         conn.commit()
         conn.close()
         _progress(stage='Done')
+        _log('Refresh finished')
     except Exception as exc:  # noqa: BLE001 - report any failure to the poller
         _note_error(f'Refresh failed: {exc}')
+        _log(f'Refresh FAILED: {exc}')
     finally:
         _progress(running=False)
 
@@ -385,12 +408,19 @@ def _refresh_news(conn) -> None:
         feeds.append((f'Google News: {r["name"]}', GOOGLE_NEWS + query, HOLDINGS_TOPIC))
 
     _progress(stage='Getting News', done=0, total=len(feeds))
+    _log(f'Getting news from {len(feeds)} feeds')
 
     def load(feed):
         name, url, topic = feed
+        started = datetime.now()
         try:
-            return name, topic, _parse_feed(_http_get(url)), None
+            items = _parse_feed(_http_get(url))
+            _log(f'News OK: {name} ({len(items)} items, '
+                 f'{(datetime.now() - started).total_seconds():.1f}s)')
+            return name, topic, items, None
         except Exception as exc:  # noqa: BLE001
+            _log(f'News FAILED: {name} after '
+                 f'{(datetime.now() - started).total_seconds():.1f}s - {exc}')
             return name, topic, [], str(exc)
 
     done = 0
