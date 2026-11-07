@@ -1,7 +1,10 @@
 from __future__ import annotations
+import hashlib
+import hmac
 import json
 import os
 import shutil
+import subprocess
 import uuid as _uuid
 from datetime import date, timedelta
 from functools import wraps
@@ -130,6 +133,32 @@ def save_prefs(prefs: dict) -> None:
     )
     conn.commit()
     conn.close()
+
+# ---------------------------------------------------------------------------
+# Auto-deploy: GitHub webhook pulls the latest code and reloads the site
+# ---------------------------------------------------------------------------
+
+DEPLOY_SECRET_FILE = BASE_DIR / '.deploy_secret'
+WSGI_FILE = Path('/var/www/tomdrayson_pythonanywhere_com_wsgi.py')
+
+
+@app.route('/deploy', methods=['POST'])
+def deploy():
+    if not DEPLOY_SECRET_FILE.exists():
+        return 'Deploy not set up', 404
+    secret = DEPLOY_SECRET_FILE.read_text().strip().encode()
+    expected = 'sha256=' + hmac.new(secret, request.get_data(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, request.headers.get('X-Hub-Signature-256', '')):
+        return 'Bad signature', 403
+    if request.headers.get('X-GitHub-Event') == 'ping':
+        return 'pong', 200
+    result = subprocess.run(['git', 'pull', '--ff-only'], cwd=BASE_DIR,
+                            capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        return f'git pull failed:\n{result.stderr}', 500
+    if WSGI_FILE.exists():
+        WSGI_FILE.touch()  # PythonAnywhere reloads the web app when this file changes
+    return f'Deployed:\n{result.stdout}', 200
 
 # ---------------------------------------------------------------------------
 # Auth routes
